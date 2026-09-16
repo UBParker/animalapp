@@ -22,7 +22,7 @@ An iPhone app that records a cat's vocalizations, lets the owner tag each record
 
 The Lund University Meowsic project (Schötz, van de Weijer, Eklund) applied phonetic methods to cat vocalizations and reports that meows in positive or requesting contexts tend to be short with a high, rising fundamental frequency (f0), while meows in negative contexts tend to be long with a low, falling f0 ([Schötz et al., "Phonetic Methods in Cat Vocalisation Studies: A report from the Meowsic project", Lund University research portal](https://portal.research.lu.se/en/publications/phonetic-methods-in-cat-vocalisation-studies-a-report-from-the-me/); [Meowsic studies page](https://meowsic.se/studies.html) [project website, not peer-reviewed]). That is why the first-class features are duration, f0 statistics, and f0 contour slope. Spectral shape features (centroid, MFCCs) are added because individual cats differ and per-cat discrimination needs timbre, which is mechanistically plausible rather than proven in the cat literature.
 
-Sample data: `~/Downloads/cat1.m4a`, 91 s, mono, 48 kHz AAC. An energy scan found 6 clear vocalizations: three meows of 0.36 to 0.44 s with spectral energy peaking near 2.2 to 2.5 kHz, and three short sounds of about 0.1 s with a dominant frequency near 110 to 125 Hz (likely chirps or grunts). The file is copied into the test fixtures.
+Sample data: `~/Downloads/cat1.m4a`, 91 s, mono, 48 kHz AAC. A first coarse energy scan found 6 loud vocalizations: three meows of 0.36 to 0.44 s with spectral energy peaking near 2.2 to 2.5 kHz, and three short sounds of about 0.1 s with a dominant frequency near 110 to 125 Hz (likely chirps or grunts). Running the exact segmentation algorithm below (with gap bridging and the -50 dBFS floor) yields 12 segments, because six quieter events also fall within 20 dB of the peak. The file is copied into the test fixtures as both the original m4a and a 16 kHz mono WAV made with ffmpeg.
 
 ## Architecture
 
@@ -93,7 +93,7 @@ Record → m4a in temp dir → `Recording` row with audio Data → background ta
 
 ### Testing
 
-- `CatVoiceAudio` tests: synthetic tones (known f0, known duration) must produce f0 within 2 percent and duration within one hop. The sample file `cat1.m4a` must yield 6 ± 1 segments. MFCC and centroid must match a JSON oracle produced by `tools/reference/extract.py` (librosa in a Python 3.13 venv) within tolerances written in the test.
+- `CatVoiceAudio` tests: synthetic tones (known f0, known duration) must produce f0 within 2 percent and duration within one hop. The sample file `cat1_16k.wav` must yield 12 ± 2 segments with the default config. MFCC and centroid must match a JSON oracle produced by `tools/reference/extract.py` (librosa in a Python 3.13 venv) within tolerances written in the test.
 - `CatVoiceStats` tests: kNN and naive Bayes on hand-built separable data, leave-one-out on a toy set, readiness rule boundaries, standardizer round trip.
 - App tests: SwiftData model round trip in an in-memory container, tag seeding runs once, tag propagation to vocalizations respects `overridden`.
 - Build check: `xcodebuild -scheme CatVoice -destination 'platform=iOS Simulator,name=iPhone 16' build test` from the CLI.
