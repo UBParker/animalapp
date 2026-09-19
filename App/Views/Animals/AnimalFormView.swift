@@ -25,7 +25,8 @@ struct AnimalFormView: View {
     @State private var errorMessage: String?
 
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && !species.trimmingCharacters(in: .whitespaces).isEmpty
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !species.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -72,8 +73,12 @@ struct AnimalFormView: View {
                 }
             }
             Section("Details") {
-                Toggle("Tracks outdoor time", isOn: $tracksOutdoorTime)
-                    .onChange(of: tracksOutdoorTime) { _, _ in outdoorTouched = true }
+                // The setter, not .onChange: onChange also fires for the species prefill, which would
+                // stop the prefill after the first flip.
+                Toggle("Tracks outdoor time", isOn: Binding(
+                    get: { tracksOutdoorTime },
+                    set: { tracksOutdoorTime = $0; outdoorTouched = true }
+                ))
                 TextField("Note", text: $note, axis: .vertical)
             }
             if let errorMessage {
@@ -121,29 +126,45 @@ struct AnimalFormView: View {
     }
 
     private func save() {
+        // Write the new photo first: nothing on the animal is touched until the bytes are safely on disk.
+        var savedPhoto: SavedPhoto?
+        if let pendingPhoto {
+            do {
+                savedPhoto = try mediaStore.savePhoto(pendingPhoto)
+            } catch {
+                errorMessage = "Could not save: \(error.localizedDescription)"
+                return
+            }
+        }
+
         let target = animal ?? Animal(name: name, species: species, sortOrder: (allAnimals.map(\.sortOrder).max() ?? -1) + 1)
-        target.name = name.trimmingCharacters(in: .whitespaces)
-        target.species = species.trimmingCharacters(in: .whitespaces)
+        target.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        target.species = species.trimmingCharacters(in: .whitespacesAndNewlines)
         target.colorHex = colorHex
         target.tracksOutdoorTime = tracksOutdoorTime
-        target.note = note.isEmpty ? nil : note
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        target.note = trimmedNote.isEmpty ? nil : trimmedNote
+
+        let oldPhoto = target.photoFilename
+        let oldThumb = target.photoThumbnailFilename
+        if removePhoto || savedPhoto != nil {
+            if let oldPhoto { mediaStore.delete(oldPhoto) }
+            if let oldThumb { mediaStore.delete(oldThumb) }
+            target.photoFilename = savedPhoto?.filename
+            target.photoThumbnailFilename = savedPhoto?.thumbnailFilename
+        }
+
         do {
-            if removePhoto || pendingPhoto != nil {
-                if let old = target.photoFilename { mediaStore.delete(old) }
-                if let oldThumb = target.photoThumbnailFilename { mediaStore.delete(oldThumb) }
-                target.photoFilename = nil
-                target.photoThumbnailFilename = nil
-            }
-            if let pendingPhoto {
-                let saved = try mediaStore.savePhoto(pendingPhoto)
-                target.photoFilename = saved.filename
-                target.photoThumbnailFilename = saved.thumbnailFilename
-            }
             if animal == nil { context.insert(target) }
             try context.save()
             if selectedAnimalId.isEmpty { selectedAnimalId = target.id.uuidString }
             dismiss()
         } catch {
+            // The store rejected the write, so the files we just wrote belong to nobody.
+            if let savedPhoto {
+                mediaStore.delete(savedPhoto.filename)
+                mediaStore.delete(savedPhoto.thumbnailFilename)
+            }
             errorMessage = "Could not save: \(error.localizedDescription)"
         }
     }
