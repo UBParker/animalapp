@@ -1,4 +1,4 @@
-name: AnimalVoice
+name: AnimalTracker
 options:
   bundleIdPrefix: com.ashlab
   deploymentTarget:
@@ -15,7 +15,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
 targets:
-  AnimalVoice:
+  AnimalTracker:
     type: application
     platform: iOS
     sources: [App]
@@ -25,34 +25,31 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Animal Voice
-        NSMicrophoneUsageDescription: Animal Voice records your animal's sounds so you can tag and analyze them.
+        CFBundleDisplayName: AnimalTracker
+        NSMicrophoneUsageDescription: AnimalTracker records your animal's sounds and your spoken check-ins.
+        NSSpeechRecognitionUsageDescription: AnimalTracker transcribes your spoken check-in on this device.
+        NSCameraUsageDescription: AnimalTracker takes photos and videos for health check-ins and animal avatars.
+        NSPhotoLibraryUsageDescription: AnimalTracker attaches photos and videos from your library.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
-        UIBackgroundModes: [remote-notification]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-    entitlements:
-      path: App/AnimalVoice.entitlements
-      properties:
-        com.apple.developer.icloud-services: [CloudKit]
-        com.apple.developer.icloud-container-identifiers: [iCloud.com.ashlab.AnimalVoice]
-        com.apple.developer.applesignin: [Default]
-        aps-environment: development
-  AnimalVoiceTests:
+  AnimalTrackerTests:
     type: bundle.unit-test
     platform: iOS
     sources: [AppTests]
     dependencies:
-      - target: AnimalVoice
+      - target: AnimalTracker
       - package: AnimalVoiceAudio
       - package: AnimalVoiceStats
 schemes:
-  AnimalVoice:
+  AnimalTracker:
     build:
       targets:
-        AnimalVoice: all
-        AnimalVoiceTests: [test]
+        AnimalTracker: all
+        AnimalTrackerTests: [test]
     run:
       config: Debug
     test:
       config: Debug
-      targets: [AnimalVoiceTests]
+      targets: [AnimalTrackerTests]

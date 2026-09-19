@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Animal Voice</string>
+	<string>AnimalTracker</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,12 +20,18 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>AnimalTracker takes photos and videos for health check-ins and animal avatars.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Animal Voice records your animal's sounds so you can tag and analyze them.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
+	<string>AnimalTracker records your animal's sounds and your spoken check-ins.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AnimalTracker attaches photos and videos from your library.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>AnimalTracker transcribes your spoken check-in on this device.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

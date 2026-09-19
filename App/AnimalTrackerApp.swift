@@ -1,10 +1,10 @@
 import SwiftUI
 
 @main
-struct AnimalVoiceApp: App {
+struct AnimalTrackerApp: App {
     var body: some Scene {
         WindowGroup {
-            Text("Animal Voice")
+            Text("AnimalTracker")
         }
     }
 }
