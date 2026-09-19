@@ -41,8 +41,13 @@ final class InMemoryMediaStore: MediaStore {
             throw MediaStoreError.invalidImage
         }
         let names = MediaNaming.photo()
-        files[names.photo] = photo
-        files[names.thumb] = thumb
+        try write(photo, to: names.photo)
+        do {
+            try write(thumb, to: names.thumb)
+        } catch {
+            delete(names.photo)
+            throw error
+        }
         return SavedPhoto(filename: names.photo, thumbnailFilename: names.thumb)
     }
 
@@ -70,6 +75,11 @@ final class InMemoryMediaStore: MediaStore {
     func delete(_ filename: String) {
         files[filename] = nil
         try? FileManager.default.removeItem(at: tempDir.appendingPathComponent(filename))
+    }
+
+    /// Mirrors `FileMediaStore.write(_:to:)` so both stores save a photo the same way.
+    private func write(_ data: Data, to filename: String) throws {
+        files[filename] = data
     }
 }
 

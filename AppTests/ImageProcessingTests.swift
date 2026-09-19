@@ -2,21 +2,6 @@ import UIKit
 import XCTest
 @testable import AnimalTracker
 
-enum TestImages {
-    static func jpeg(width: Int, height: Int) -> Data {
-        // scale 1 so the rendered image is exactly width x height PIXELS on every
-        // simulator; the default format uses the screen scale (2x or 3x).
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
-        let image = renderer.image { ctx in
-            UIColor.systemTeal.setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        }
-        return image.jpegData(compressionQuality: 0.9)!
-    }
-}
-
 final class ImageProcessingTests: XCTestCase {
     func testDownscalesLongestSideTo2048() throws {
         let big = TestImages.jpeg(width: 3000, height: 1000)

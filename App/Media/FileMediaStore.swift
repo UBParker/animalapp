@@ -9,6 +9,10 @@ final class FileMediaStore: MediaStore {
 
     let root: URL
 
+    /// Test seam: called with the filename just before each write, so a test can make one fail.
+    /// Deliberately not part of `MediaStore`.
+    var writeHook: ((String) throws -> Void)?
+
     init(root: URL = FileMediaStore.documentsMedia) {
         self.root = root
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -20,7 +24,13 @@ final class FileMediaStore: MediaStore {
         }
         let names = MediaNaming.photo()
         try write(photo, to: names.photo)
-        try write(thumb, to: names.thumb)
+        do {
+            try write(thumb, to: names.thumb)
+        } catch {
+            // Never leave a photo without its thumbnail in the user-visible Documents/Media folder.
+            delete(names.photo)
+            throw error
+        }
         return SavedPhoto(filename: names.photo, thumbnailFilename: names.thumb)
     }
 
@@ -43,7 +53,12 @@ final class FileMediaStore: MediaStore {
     func delete(_ filename: String) { try? FileManager.default.removeItem(at: url(for: filename)) }
 
     private func write(_ data: Data, to filename: String) throws {
-        do { try data.write(to: url(for: filename), options: .atomic) } catch { throw MediaStoreError.writeFailed(error.localizedDescription) }
+        do {
+            try writeHook?(filename)
+            try data.write(to: url(for: filename), options: .atomic)
+        } catch {
+            throw MediaStoreError.writeFailed(error.localizedDescription)
+        }
     }
 
     private func copy(_ src: URL, to filename: String) throws {

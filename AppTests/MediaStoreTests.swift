@@ -38,6 +38,23 @@ final class MediaStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.savePhoto(Data([1, 2, 3])))
     }
 
+    func testFileStoreRemovesPhotoWhenThumbnailWriteFails() throws {
+        let root = tempRoot()
+        let store = FileMediaStore(root: root)
+        // One good save first, then clear it, so the root exists and starts empty.
+        let seed = try store.savePhoto(TestImages.jpeg(width: 200, height: 200))
+        store.delete(seed.filename)
+        store.delete(seed.thumbnailFilename)
+
+        store.writeHook = { filename in
+            if filename.hasSuffix("-thumb.jpg") { throw MediaStoreError.writeFailed("thumbnail write failed") }
+        }
+        XCTAssertThrowsError(try store.savePhoto(TestImages.jpeg(width: 200, height: 200)))
+
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertTrue(remaining.filter { $0.hasSuffix("-photo.jpg") }.isEmpty, "orphaned photo left behind: \(remaining)")
+    }
+
     func testInMemoryStoreBehavesTheSame() throws {
         let store = InMemoryMediaStore()
         let saved = try store.savePhoto(TestImages.jpeg(width: 100, height: 100))
