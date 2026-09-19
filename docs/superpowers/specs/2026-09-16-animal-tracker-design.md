@@ -37,7 +37,7 @@ All entities have `id: UUID`, `createdAt: Date`. Enums are stored as String raw 
 
 ### Animal
 
-`Animal`: name, species (free text with suggestions: horse, pony, donkey, dog, cat, goat, sheep, cow, pig, chicken, rabbit, other), colorHex, photoFilename (optional, stored like Health media), tracksOutdoorTime (Bool, default true for horse, pony, donkey, goat, sheep, cow, pig, chicken; false otherwise; editable), sortOrder, isArchived, note (optional). `isCat` is true when any whitespace-separated word of the lowercased species is "cat", "cats", "kitten", or "kitty" (so "cattle" is not a cat) and gates the voice research hint.
+`Animal`: name, species (free text with suggestions: horse, pony, donkey, dog, cat, goat, sheep, cow, pig, chicken, rabbit, other), colorHex, photoFilename (optional, stored like Health media), tracksOutdoorTime (Bool, default true for horse, pony, donkey, goat, sheep, cow, pig, chicken; false otherwise; editable), sortOrder, isArchived, note (optional). `isCat` is true when any word (split on non-letters) of the lowercased species is "cat", "cats", "kitten", or "kitty" (so "cattle" is not a cat) and gates the voice research hint.
 
 Selected animal id lives in `@AppStorage("selectedAnimalId")`. If it points at an archived or missing animal, the first non-archived animal is selected.
 
