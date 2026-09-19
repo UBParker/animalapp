@@ -6,6 +6,9 @@ struct RootTabView: View {
     @AppStorage(AppStorageKeys.selectedAnimalId) private var selectedAnimalId = ""
     @State private var showFirstRun = false
 
+    /// Identity of the active set, so archiving or deleting the last animal re-runs syncSelection.
+    private var activeKey: String { animals.filter { !$0.isArchived }.map { $0.id.uuidString }.sorted().joined() }
+
     private var selected: Animal? {
         let id = SelectedAnimalResolver.resolve(storedID: selectedAnimalId, animals: animals.map(AnimalSnapshot.init))
         return animals.first { $0.id == id }
@@ -21,7 +24,7 @@ struct RootTabView: View {
         }
         .environment(\.selectedAnimal, selected)
         .onAppear { syncSelection() }
-        .onChange(of: animals.count) { _, _ in syncSelection() }
+        .onChange(of: activeKey) { _, _ in syncSelection() }
         .fullScreenCover(isPresented: $showFirstRun) {
             NavigationStack { ManageAnimalsView(isFirstRun: true) }
         }
