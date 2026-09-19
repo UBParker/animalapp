@@ -26,7 +26,10 @@ final class Animal {
         self.sortOrder = sortOrder
     }
 
-    var isCat: Bool { species.lowercased().contains("cat") }
+    var isCat: Bool {
+        let words = species.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return words.contains { ["cat", "cats", "kitten", "kitty"].contains($0) }
+    }
 
     var displayInitial: String { String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased() }
 }

@@ -22,7 +22,10 @@ final class AnimalModelTests: XCTestCase {
 
     func testIsCatAndDogDefaults() {
         XCTAssertTrue(Animal(name: "Miso", species: "Cat").isCat)
-        XCTAssertTrue(Animal(name: "Bob", species: "bobcat").isCat)
+        XCTAssertFalse(Animal(name: "Bob", species: "bobcat").isCat)
+        XCTAssertFalse(Animal(name: "Daisy", species: "cattle").isCat)
+        XCTAssertTrue(Animal(name: "Pip", species: "Maine Coon cat").isCat)
+        XCTAssertTrue(Animal(name: "Kit", species: "Kitten").isCat)
         XCTAssertFalse(Animal(name: "Rex", species: "dog").tracksOutdoorTime)
     }
 
