@@ -5,4 +5,4 @@ SIM="$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [^(]+' | sed '
 xcodegen generate >/dev/null
 xcodebuild -project AnimalTracker.xcodeproj -scheme AnimalTracker \
   -destination "platform=iOS Simulator,name=$SIM" \
-  CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|warning: .*deprecated|BUILD" | tail -30
+  build 2>&1 | grep -E "error:|warning: .*deprecated|BUILD" | tail -30

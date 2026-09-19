@@ -38,6 +38,9 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources: [AppTests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: AnimalTracker
       - package: AnimalVoiceAudio
