@@ -34,7 +34,7 @@ public struct KNNClassifier {
                 let d = zip(q, z).reduce(0.0) { $0 + ($1.0 - $1.1) * ($1.0 - $1.1) }.squareRoot()
                 return (sample, d)
             }
-            .sorted { $0.1 < $1.1 }
+            .sorted { ($0.1, $0.0.id.uuidString) < ($1.1, $1.0.id.uuidString) }
         let nearest = scored.prefix(max(1, k))
         var weights: [String: Double] = [:]
         for (sample, d) in nearest {

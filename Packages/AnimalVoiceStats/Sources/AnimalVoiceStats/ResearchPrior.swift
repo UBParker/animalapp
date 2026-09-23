@@ -7,7 +7,9 @@ public enum ResearchPrior {
 
     /// The finding is about domestic cats, so any other species gets nil.
     public static func hint(species: String, durationS: Double, f0Mean: Double?, f0Slope: Double?) -> String? {
-        guard species.lowercased().contains("cat"), let f0 = f0Mean, let slope = f0Slope else { return nil }
+        let words = species.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        guard words.contains(where: { ["cat", "cats", "kitten", "kitty"].contains($0) }),
+              let f0 = f0Mean, let slope = f0Slope else { return nil }
         if durationS < 0.6, slope > 0, f0 > 500 {
             return "Short, high, rising. In published cat studies this pattern is common in requests and greetings."
         }

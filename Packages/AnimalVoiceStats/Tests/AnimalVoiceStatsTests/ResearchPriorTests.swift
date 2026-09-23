@@ -10,6 +10,11 @@ final class ResearchPriorTests: XCTestCase {
         XCTAssertEqual(ResearchPrior.hint(species: "domestic cat", durationS: 1.2, f0Mean: 400, f0Slope: -150)?.hasPrefix("Long and falling"), true)
     }
 
+    func testKittenAndMultiWordSpeciesGetHints() {
+        XCTAssertEqual(ResearchPrior.hint(species: "Kitten", durationS: 0.4, f0Mean: 700, f0Slope: 200)?.hasPrefix("Short, high, rising"), true)
+        XCTAssertEqual(ResearchPrior.hint(species: "Maine Coon cat", durationS: 1.2, f0Mean: 400, f0Slope: -150)?.hasPrefix("Long and falling"), true)
+    }
+
     func testNoPatternOrUnvoiced() {
         XCTAssertNil(ResearchPrior.hint(species: "Cat", durationS: 0.7, f0Mean: 600, f0Slope: 10))
         XCTAssertNil(ResearchPrior.hint(species: "Cat", durationS: 0.4, f0Mean: nil, f0Slope: nil))
@@ -18,6 +23,11 @@ final class ResearchPriorTests: XCTestCase {
     func testOtherSpeciesGetNoHint() {
         XCTAssertNil(ResearchPrior.hint(species: "Dog", durationS: 0.4, f0Mean: 700, f0Slope: 200))
         XCTAssertNil(ResearchPrior.hint(species: "", durationS: 0.4, f0Mean: 700, f0Slope: 200))
+    }
+
+    func testSpeciesMerelyContainingCatGetNoHint() {
+        XCTAssertNil(ResearchPrior.hint(species: "bobcat", durationS: 0.4, f0Mean: 700, f0Slope: 200))
+        XCTAssertNil(ResearchPrior.hint(species: "cattle", durationS: 1.2, f0Mean: 400, f0Slope: -150))
     }
 
     func testAttributionMentionsMeowsic() {
