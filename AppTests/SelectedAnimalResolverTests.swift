@@ -18,6 +18,13 @@ final class SelectedAnimalResolverTests: XCTestCase {
         XCTAssertEqual(SelectedAnimalResolver.resolve(storedID: "", animals: [a, b]), b.id)
     }
 
+    func testTiedSortOrderBreaksOnIdSoTheOrderIsTotal() {
+        let a = snap("A", order: 3), b = snap("B", order: 3)
+        let expected = a.id.uuidString < b.id.uuidString ? a.id : b.id
+        XCTAssertEqual(SelectedAnimalResolver.resolve(storedID: "", animals: [a, b]), expected)
+        XCTAssertEqual(SelectedAnimalResolver.resolve(storedID: "", animals: [b, a]), expected)
+    }
+
     func testNoActiveAnimals() {
         XCTAssertNil(SelectedAnimalResolver.resolve(storedID: "", animals: []))
         XCTAssertNil(SelectedAnimalResolver.resolve(storedID: "", animals: [snap("Old", order: 0, archived: true)]))

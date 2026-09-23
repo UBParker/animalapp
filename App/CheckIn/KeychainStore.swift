@@ -34,6 +34,8 @@ struct KeychainStore {
         if status == errSecItemNotFound {
             var add = query(account)
             add[kSecValueData as String] = data
+            // Background sync needs the key after the first unlock; never off this device.
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw KeychainError.status(status) }
