@@ -4,11 +4,11 @@ Binding names for every SwiftData model and field, so the per-subsystem plans (B
 
 ## Conventions
 
-- Every model: `var id: UUID = UUID()`, `var createdAt: Date = Date()`. Every stored property has a default or is optional. Relationships are optional. One side of each relationship declares `@Relationship(deleteRule:inverse:)`; the other side is a plain optional.
+- Every model: `@Attribute(.unique) var id: UUID = UUID()`, `var createdAt: Date = Date()` (ids are unique because import and sync merge by id; CloudKit is off so `.unique` is allowed). Synced models (Animal, VoiceRecording, Vocalization, VoiceTag; later all domains) also get `var updatedAt: Date = Date()` per spec addendum v7. Every stored property has a default or is optional. Relationships are optional. One side of each relationship declares `@Relationship(deleteRule:inverse:)`; the other side is a plain optional.
 - Enum-backed fields are stored as `<name>Raw: String` with a computed `<name>` accessor, e.g. `var kindRaw: String = PressKind.spontaneous.rawValue` and `var kind: PressKind { get { PressKind(rawValue: kindRaw) ?? .spontaneous } set { kindRaw = newValue.rawValue } }`.
 - Every domain record has `var animal: Animal?` (no inverse array on `Animal`). Record counts for deletion come from fetch predicates on each domain's model, registered in `AnimalDeletionPolicy.recordCounts`.
 - Registration points each plan must touch: append model types to `PersistenceController.modelTypes`; append seed closures to `Seeds.all`; add one entry to `AnimalDeletionPolicy.recordCounts`; replace the tab placeholder line in `RootTabView`; replace the matching `SettingsPlaceholderRow` in `SettingsView`; add snapshot structs to `App/Logic/Snapshots.swift`.
-- Media filenames are relative to `Documents/Media/` and go through `MediaStore`.
+- Media filenames are relative to `Documents/Media/` and go through `MediaStore`. `saveVideo(from:)` and `saveAudio(from:)` move the source file (it is removed after the copy succeeds); filenames are lowercase-UUID based and must be single path components.
 
 ## Models
 
