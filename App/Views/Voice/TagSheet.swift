@@ -2,43 +2,67 @@ import SwiftData
 import SwiftUI
 
 /// Tags a recording with animal, activity, meaning, confidence, and note, then propagates to its sounds.
+///
+/// The form edits a draft copy rather than the model. Writing straight through to the recording would
+/// let the autosaving context persist every keystroke, so "Later" has to leave the model untouched.
 struct TagSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Bindable var recording: VoiceRecording
+    let recording: VoiceRecording
     @Query(sort: \Animal.sortOrder) private var animals: [Animal]
     @Query(sort: \VoiceTag.sortOrder) private var tags: [VoiceTag]
+    @State private var draft: Draft
     @State private var newActivity = ""
     @State private var newMeaning = ""
+
+    /// A snapshot of the recording's tag fields, written back only by `save()`.
+    private struct Draft {
+        var animalID: UUID?
+        var activityTag: String?
+        var meaningTag: String?
+        /// Seeded to 2 when unset, so an untouched save stores the "Fairly sure" the picker shows.
+        var confidence: Int
+        var note: String
+
+        init(_ recording: VoiceRecording) {
+            animalID = recording.animal?.id
+            activityTag = recording.activityTag
+            meaningTag = recording.meaningTag
+            confidence = recording.userConfidence ?? 2
+            note = recording.note
+        }
+    }
+
+    init(recording: VoiceRecording) {
+        self.recording = recording
+        _draft = State(initialValue: Draft(recording))
+    }
 
     var body: some View {
         Form {
             Section("Which animal") {
-                Picker("Animal", selection: Binding(
-                    get: { recording.animal?.id },
-                    set: { id in recording.animal = animals.first { $0.id == id } }
-                )) {
+                Picker("Animal", selection: $draft.animalID) {
                     Text("Choose an animal").tag(UUID?.none)
                     ForEach(animals.filter { !$0.isArchived }) { Text("\($0.name) (\($0.species))").tag(Optional($0.id)) }
                 }
             }
             Section("What was the animal doing") {
-                tagPicker(selection: $recording.activityTag, options: VoiceTagNames.names(tags, kind: .activity), newText: $newActivity, kind: .activity)
+                tagPicker(selection: $draft.activityTag, options: VoiceTagNames.names(tags, kind: .activity), newText: $newActivity, kind: .activity)
             }
             Section("What do you think it meant") {
-                tagPicker(selection: $recording.meaningTag, options: VoiceTagNames.names(tags, kind: .meaning), newText: $newMeaning, kind: .meaning)
+                tagPicker(selection: $draft.meaningTag, options: VoiceTagNames.names(tags, kind: .meaning), newText: $newMeaning, kind: .meaning)
             }
             Section("How sure are you") {
-                ConfidencePicker(value: Binding(get: { recording.userConfidence ?? 2 }, set: { recording.userConfidence = $0 }))
+                ConfidencePicker(value: $draft.confidence)
             }
             Section("Note") {
-                TextField("Anything else", text: $recording.note, axis: .vertical)
+                TextField("Anything else", text: $draft.note, axis: .vertical)
             }
             Section { statusSummary }
         }
         .navigationTitle("Tag recording")
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(recording.animal == nil) }
+            ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(draft.animalID == nil) }
             ToolbarItem(placement: .cancellationAction) { Button("Later") { dismiss() } }
         }
     }
@@ -74,16 +98,26 @@ struct TagSheet: View {
         }
     }
 
+    /// Selects the existing tag's own spelling when one matches case-insensitively, so the picker
+    /// lands on a row it actually lists; otherwise inserts the typed name and selects that.
     private func addTag(_ raw: String, kind: VoiceTagKind, selection: Binding<String?>) {
         let name = raw.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        if !tags.contains(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+        if let existing = tags.first(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            selection.wrappedValue = existing.name
+        } else {
             context.insert(VoiceTag(kind: kind, name: name, sortOrder: (tags.map(\.sortOrder).max() ?? 0) + 1))
+            selection.wrappedValue = name
         }
-        selection.wrappedValue = name
     }
 
+    /// The only place the draft reaches the model.
     private func save() {
+        recording.animal = animals.first { $0.id == draft.animalID }
+        recording.activityTag = draft.activityTag
+        recording.meaningTag = draft.meaningTag
+        recording.userConfidence = draft.confidence
+        recording.note = draft.note
         recording.editedAt = Date()
         TagPropagation.apply(to: recording)
         try? context.save()

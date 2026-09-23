@@ -80,14 +80,18 @@ struct RecordView: View {
         isAnalyzing = true
         Task {
             defer { isAnalyzing = false }
+            var stored: String?
             do {
                 let filename = try mediaStore.saveAudio(from: url)
+                stored = filename
                 let recording = VoiceRecording(audioFilename: filename, durationS: elapsed, animal: animal)
                 context.insert(recording)
                 try context.save()
                 await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context)
                 pendingRecording = recording
             } catch {
+                // The insert failed after the audio landed in the store, so drop the file it would have owned.
+                if let stored { mediaStore.delete(stored) }
                 errorMessage = "Could not save the recording: \(error.localizedDescription)"
             }
             try? FileManager.default.removeItem(at: url)
