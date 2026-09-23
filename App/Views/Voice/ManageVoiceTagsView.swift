@@ -75,6 +75,8 @@ struct ManageVoiceTagsView: View {
     }
 
     private func rename(_ tag: VoiceTag, to name: String) {
+        // A model deleted out from under the row has no context; writing to it would be a write to nothing.
+        guard tag.modelContext != nil else { return }
         tag.name = name
         try? context.save()
     }
@@ -114,13 +116,24 @@ private struct TagRow: View {
         .onChange(of: isFocused) { _, focused in
             if !focused { save() }
         }
+        .onChange(of: draft) { _, edited in
+            // The user is typing again, so a stale rejection goes away. A revert puts the stored name
+            // back, and that must keep the caption up: Done rejects, then focus loss saves a second time.
+            if edited != tag.name { error = nil }
+        }
+        .onChange(of: tag.name) { _, renamed in
+            if !isFocused { draft = renamed }
+        }
+        .onDisappear {
+            // Scrolling a focused row out of the list tears it down without ever clearing focus.
+            if isFocused { save() }
+        }
     }
 
     private func save() {
         let name = draft.trimmingCharacters(in: .whitespaces)
         guard name != tag.name else {
-            draft = tag.name
-            error = nil
+            if draft != name { draft = name }   // normalise stray whitespace; leave any rejection showing
             return
         }
         if let reason = validate(name) {
