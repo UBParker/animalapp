@@ -23,9 +23,13 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             playingID = id
             if let endS {
                 let seconds = max(0.05, endS - (startS ?? 0))
-                stopTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+                // .common mode, like Recorder's meter timer: a default-mode timer is starved while
+                // the user drags a scroll view, and the clip would play past its end.
+                let t = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
                     DispatchQueue.main.async { self?.stop() }
                 }
+                RunLoop.main.add(t, forMode: .common)
+                stopTimer = t
             }
         } catch {
             isPlaying = false
@@ -43,6 +47,6 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async { self.stop() }
+        DispatchQueue.main.async { if player === self.player { self.stop() } }
     }
 }

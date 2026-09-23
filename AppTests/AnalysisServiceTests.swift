@@ -45,4 +45,27 @@ final class AnalysisServiceTests: XCTestCase {
         XCTAssertEqual(recording.status, .failed)
         XCTAssertNotNil(recording.errorMessage)
     }
+
+    func testReanalyzeReplacesVocalizationsAndRepropagatesTags() async throws {
+        let context = try TestSupport.container().mainContext
+        let store = InMemoryMediaStore()
+        let recording = VoiceRecording(audioFilename: try store.saveAudio(from: TestAudioFile.toneBurstM4A()), durationS: 1.0)
+        context.insert(recording)
+        await AnalysisService.analyze(recording: recording, mediaStore: store, context: context)
+        XCTAssertEqual(recording.vocalizations?.count, 1)
+
+        recording.meaningTag = "Annoyed"
+        let first = try XCTUnwrap(recording.sortedVocalizations.first)
+        first.overridden = true
+        first.meaningTag = "Custom"
+
+        var config = SegmenterConfig()
+        config.relativeThresholdDb = 40
+        await AnalysisService.analyze(recording: recording, mediaStore: store, context: context, segmenter: config)
+
+        XCTAssertEqual(recording.status, .analyzed, recording.errorMessage ?? "")
+        XCTAssertEqual(recording.vocalizations?.count, 1)
+        XCTAssertEqual(recording.sortedVocalizations.first?.meaningTag, "Annoyed")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Vocalization>()).count, 1)
+    }
 }
