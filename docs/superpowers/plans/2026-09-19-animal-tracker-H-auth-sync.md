@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Plan B Task 18 and the Plan B fix wave must be complete before Plan H Task 1 starts.** Task 11 Step 9 edits `App/Views/Voice/ManageVoiceTagsView.swift`, `App/Voice/RecordingDeleter.swift` and `App/Voice/VoiceTagRenamer.swift`; Task 7 Step 3 edits the `#Predicate` in `App/Voice/InsightsModel.swift`. None of those files existed at the v2 baseline `090cdc4`. Every anchor in this plan was re-derived from the tree at `a9de821`, after the fix wave `ecd5fbf`, `3301165`, `da34031`, `595412f`, `a9de821`. Check before starting:
+- **Plan B Task 18 and the Plan B fix wave must be complete before Plan H Task 1 starts.** Task 11 Step 9 edits `App/Views/Voice/ManageVoiceTagsView.swift`, `App/Voice/RecordingDeleter.swift` and `App/Voice/VoiceTagRenamer.swift`; Task 7 Step 3 edits the `#Predicate` in `App/Voice/InsightsModel.swift`. None of those files existed at the v2 baseline `090cdc4`. Every anchor in this plan was re-derived from the tree at `8dc20e8`, after the fix wave `ecd5fbf`, `3301165`, `da34031`, `595412f`, `8dc20e8`. Check before starting:
   ```bash
   cd /Users/asheslab/Documents/work/cat-voice
   ls App/Views/Voice/ManageVoiceTagsView.swift App/Views/Voice/InsightsView.swift \
@@ -22,7 +22,7 @@
   grep -n 'isBusy' App/Views/Voice/RecordView.swift App/Views/Voice/AskView.swift | head -4
   scripts/test-app.sh | tail -3
   ```
-  Expected: all five files exist; the Settings link, `VoiceTagSeed.builtInID` and the `isBusy` bindings all print; and the app suite reports 59 tests with 0 failures (packages: 28 audio, 28 stats). If any file is missing or `builtInID` does not exist, stop: this plan builds on that work rather than repeating it.
+  Expected: all five files exist; the Settings link, `VoiceTagSeed.builtInID` and the `isBusy` bindings all print; and the app suite reports 60 tests with 0 failures (packages: 28 audio, 28 stats). If any file is missing or `builtInID` does not exist, stop: this plan builds on that work rather than repeating it.
 - **Do not re-create what Plan B already shipped.** `VoiceTagSeed.builtInID(kind:name:)` (UUID v5 over the RFC 4122 DNS namespace and `"kind:name"`), `VoiceTagSeed.seedIfNeeded(context:)` matching on id *and* name, `VoiceTagSeed.run(_:)` seeding on every launch with no UserDefaults guard, `RecordingDeleter.delete(_:context:mediaStore:)` and `VoiceTagRenamer.rename(tag:to:context:)` all exist. This plan calls them; it does not rewrite them. There is no `UUID.v5` extension and no `builtInNamespace` symbol in the tree, and this plan adds neither.
 - Swift 5 language mode (`SWIFT_VERSION: "5.0"` in `project.yml`), iOS deployment target 17.0.
 - The only third-party package in the app is `supabase-swift`, pinned `from: "2.55.2"` (the newest release on 2026-09-23, confirmed at https://github.com/supabase/supabase-swift/releases/tag/v2.55.2). The two local packages `AnimalVoiceAudio` and `AnimalVoiceStats` stay as they are.
@@ -162,7 +162,7 @@ Two tables. The first maps the twenty-two findings in `.superpowers/sdd/planH-re
 | 17. `SyncState` saves guarded by the generation token; status sanitized to a category | Task 3 Step 4 (`SyncStatus`), Task 11 Step 5 |
 | 18. Seven new engine tests (older tombstone loses, no resurrection, per-table tombstone survival, capped pagination, stale generation, missing parent, clock-skew clamp) | Task 10 Step 1, plus Task 11 Step 1 for the stale-generation save guard |
 | 19. Outbox replaced by watermarks plus tombstones, with the property mapping | Assumptions, "Sync model" |
-| 20. Deterministic built-in tag ids; the reset re-seeds unconditionally; reset and pull tests | Satisfied by the tree: Plan B's fix wave (`595412f`, `a9de821`) shipped `VoiceTagSeed.builtInID`, an id-and-name-matching `seedIfNeeded`, and a `run(_:)` with no UserDefaults guard. Task 7 Step 6 verifies that instead of rewriting it, Task 5 Step 4 just calls `Seeds.runAll`, and the one case Plan B could not cover, a pulled row merging onto the seeded row, is Task 9 Step 1 |
+| 20. Deterministic built-in tag ids; the reset re-seeds unconditionally; reset and pull tests | Satisfied by the tree: Plan B's fix wave (`595412f`, `8dc20e8`) shipped `VoiceTagSeed.builtInID`, an id-and-name-matching `seedIfNeeded`, and a `run(_:)` with no UserDefaults guard. Task 7 Step 6 verifies that instead of rewriting it, Task 5 Step 4 just calls `Seeds.runAll`, and the one case Plan B could not cover, a pulled row merging onto the seeded row, is Task 9 Step 1 |
 | 21. psql check that a pushed `updated_at` matches the device value to sub-second precision; no key on a `PlistBuddy` command line | Task 12 Step 5 (psql plus the SQLite comparison against the device store), Task 1 Step 4 (the key goes in through a heredoc, never on a command line) |
 | 22. Assumptions record session storage and accessibility, sign-out scope, pagination limit, clock-skew handling and the nonce fallback policy | Assumptions |
 
@@ -3859,7 +3859,7 @@ Now the predicates. A `#Predicate` can only reach persisted properties, and `ani
 cd /Users/asheslab/Documents/work/cat-voice
 grep -rn "#Predicate" App/
 ```
-Expected at `a9de821`: seven hits. Four are in `App/Voice/VoiceTagRenamer.swift` and compare `activityTag` or `meaningTag`, which are plain stored `String?`s, so they are left alone. The three that walk the relationship are the ones to change:
+Expected at `8dc20e8`: seven hits. Four are in `App/Voice/VoiceTagRenamer.swift` and compare `activityTag` or `meaningTag`, which are plain stored `String?`s, so they are left alone. The three that walk the relationship are the ones to change:
 
 In `App/Persistence/AnimalDeletionPolicy.swift`, replace line 11:
 ```swift
@@ -4067,7 +4067,7 @@ It forwards to the existing private `write(_:to:)`, so it goes through `writeHoo
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `SyncFieldTests` ten cases are green, and all 59 tests that passed before this plan started still pass, `VoiceTagSeedTests`, `PredictionServiceTests`, `InsightsModelTests` and `AnimalDeletionPolicyTests` among them.
+Expected: PASS. `SyncFieldTests` ten cases are green, and all 60 tests that passed before this plan started still pass, `VoiceTagSeedTests`, `PredictionServiceTests`, `InsightsModelTests` and `AnimalDeletionPolicyTests` among them.
 
 Correction if an existing test fails with a SwiftData migration error on the simulator, delete the app's store and re-run:
 ```bash
@@ -7274,7 +7274,7 @@ and add this method after `delete(_:)`:
 
 - [ ] **Step 9: Stamp updatedAt at every voice mutation site**
 
-Every block below was re-derived from the tree at `a9de821`, after Plan B's fix wave. v2's blocks were written against `090cdc4` and no longer match: `RecordingDeleter` and `VoiceTagRenamer` did not exist, `ManageVoiceTagsView` had a different shape, and `RecordView`, `AskView` and `RecordingDetailView` have all changed. Read the file before each edit.
+Every block below was re-derived from the tree at `8dc20e8`, after Plan B's fix wave. v2's blocks were written against `090cdc4` and no longer match: `RecordingDeleter` and `VoiceTagRenamer` did not exist, `ManageVoiceTagsView` had a different shape, and `RecordView`, `AskView` and `RecordingDetailView` have all changed. Read the file before each edit.
 
 Two of these sites are not views at all. Deleting a recording now goes through `RecordingDeleter`, and renaming a tag through `VoiceTagRenamer`, so the tombstone and the `updatedAt` stamps belong there: a caller that forgets them is a bug the helper can prevent, and both helpers already have every value the sync side needs.
 
@@ -7668,7 +7668,7 @@ to
     }
 ```
 
-**`VocalizationPlayButton`**, which lives at the bottom of `App/Views/Voice/RecordingDetailView.swift` (line 103 at `a9de821`; confirm with `grep -rn "struct VocalizationPlayButton" App/`). Change its body from
+**`VocalizationPlayButton`**, which lives at the bottom of `App/Views/Voice/RecordingDetailView.swift` (line 103 at `8dc20e8`; confirm with `grep -rn "struct VocalizationPlayButton" App/`). Change its body from
 ```swift
             if player.playingID == vocalization.id {
                 player.stop()
@@ -7692,7 +7692,7 @@ to
 
 **`App/Views/Voice/AskView.swift`**, two places.
 
-The correction callback, lines 57 to 61 at `a9de821`, is a real edit to a sound and was pushing nothing at all. Change
+The correction callback, lines 57 to 61 at `8dc20e8`, is a real edit to a sound and was pushing nothing at all. Change
 ```swift
                                   meanings: VoiceTagNames.names(tags, kind: .meaning), player: player) { correct in
                         item.vocalization.meaningTag = correct
@@ -7714,14 +7714,19 @@ to
 and in `finish()`, change
 ```swift
                 await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
-                recording = newRecording
+                // Deleted while the analysis ran: reading a deleted model's relationships traps, and
+                // there is nothing left to show results against.
+                guard newRecording.modelContext != nil else {
 ```
 to
 ```swift
                 await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
                 SyncService.shared.requestSync()
-                recording = newRecording
+                // Deleted while the analysis ran: reading a deleted model's relationships traps, and
+                // there is nothing left to show results against.
+                guard newRecording.modelContext != nil else {
 ```
+The request goes before the guard on purpose: the analysis already saved the recording and its sounds (or the deletion already wrote a tombstone through `RecordingDeleter`), and either outcome is something the server should hear about.
 
 **`App/Views/Voice/ManageVoiceTagsView.swift`**, as Plan B's fix wave left it. Three edits, and only three: the rename path already goes through `VoiceTagRenamer`, which Step 9 has already taught to stamp and request.
 
@@ -7785,7 +7790,7 @@ Expected: every remaining line is inside a function whose next statement, or a s
 ```bash
 grep -rn "context.delete(" App --include=*.swift | grep -v "^App/Sync/"
 ```
-Expected: every hit is preceded by a `Tombstone.record(...)` or `Tombstone.recordRecording(...)` call on the line or lines above it, in the same function. At `a9de821` the hits outside `App/Sync` are in `RecordingDeleter.delete`, `AnalysisService.apply`, `ManageVoiceTagsView.section(_:kind:)`, `ManageAnimalsView.delete(_:)`, `RecordView.finish` and `AskView.finish`. The last two are the only ones with no tombstone, and correctly so: they delete a row whose `try context.save()` never succeeded, so the server has never heard of it.
+Expected: every hit is preceded by a `Tombstone.record(...)` or `Tombstone.recordRecording(...)` call on the line or lines above it, in the same function. At `8dc20e8` the hits outside `App/Sync` are in `RecordingDeleter.delete`, `AnalysisService.apply`, `ManageVoiceTagsView.section(_:kind:)`, `ManageAnimalsView.delete(_:)`, `RecordView.finish` and `AskView.finish`. The last two are the only ones with no tombstone, and correctly so: they delete a row whose `try context.save()` never succeeded, so the server has never heard of it.
 
 ```bash
 grep -rn "mediaStore.delete" App --include=*.swift | grep -v "^App/Sync/"
@@ -7829,7 +7834,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 scripts/test-packages.sh
 scripts/test-app.sh
 ```
-Expected: both report zero failures. The package suites are unchanged by this plan, so they still report 28 for `AnimalVoiceAudio` and 28 for `AnimalVoiceStats`. The app suite started this plan at 59 and this plan adds 176: `SupabasePackageLinkTests` 1, `SecretGuardTests` 6, `SupabaseConfigTests` 7, `NonceTests` 11, `SyncStateTests` 17, `KeychainSessionStorageTests` 4, `SyncCodingTests` 6, `AuthServiceTests` 18, `RootGateTests` 8, `ContainerResetTests` 4, `MigrationFileTests` 15, `SyncFieldTests` 10, `SyncRowTests` 14, `LocalStoreTests` 21, `SyncEngineTests` 22, `MediaResolverTests` 4, `SyncServiceTests` 8. So 235 in total. A different number is not automatically wrong, but reconcile it before continuing: a suite that silently lost a file is the failure mode this count exists to catch. Do not continue past a failure; fix it in the task that owns the file, test first.
+Expected: both report zero failures. The package suites are unchanged by this plan, so they still report 28 for `AnimalVoiceAudio` and 28 for `AnimalVoiceStats`. The app suite started this plan at 60 and this plan adds 176: `SupabasePackageLinkTests` 1, `SecretGuardTests` 6, `SupabaseConfigTests` 7, `NonceTests` 11, `SyncStateTests` 17, `KeychainSessionStorageTests` 4, `SyncCodingTests` 6, `AuthServiceTests` 18, `RootGateTests` 8, `ContainerResetTests` 4, `MigrationFileTests` 15, `SyncFieldTests` 10, `SyncRowTests` 14, `LocalStoreTests` 21, `SyncEngineTests` 22, `MediaResolverTests` 4, `SyncServiceTests` 8. So 235 in total. A different number is not automatically wrong, but reconcile it before continuing: a suite that silently lost a file is the failure mode this count exists to catch. Do not continue past a failure; fix it in the task that owns the file, test first.
 
 - [ ] **Step 2: Simulator smoke test, offline path**
 
@@ -8025,13 +8030,13 @@ Skip this step if `git merge` reported "Already up to date." and created no comm
 
 **Placeholder scan.** No "TBD", no "similar to Task N", no "add error handling", no "write tests for the above". Every code step carries the full text of the file or the exact before and after of the lines being changed. The conditional branches all carry complete replacement code rather than a description: Task 1 Step 8's signing fallback, Task 4 Step 5's `String(describing:)` correction, Task 6 Step 7's storage-ownership fallback, and Task 12 Step 5's SQLite column-name discovery. The one deliberately open item is Task 12 Step 3's third nonce option, which is not a build step at all but a decision reserved to Ash, and the plan says so rather than pretending to a fallback.
 
-**Anchor check.** Every "change from" block and every `file:line` reference was re-derived from the working tree at `a9de821`, and each was then confirmed to exist verbatim with `grep -F`. The v2 revision's anchors were written against `090cdc4` and eight of them no longer matched after Plan B's fix wave; the eight were `TagSheet.addTag`, `TagSheet.save`, the `RecordingDetailView` delete dialog, `RecordView.finish`, the three `#Predicate` sites (whose line numbers moved), and the whole of `ManageVoiceTagsView`. Files this plan touches that did not exist at `090cdc4` (`RecordingDeleter`, `VoiceTagRenamer`, `InsightsModel`, `ManageVoiceTagsView`) are gated in Global Constraints with an `ls` and `grep` precondition, so a worker who starts on an older tree is stopped rather than left to improvise. Every step that edits a file whose shape could move again also carries the `grep` that proves the shape first.
+**Anchor check.** Every "change from" block and every `file:line` reference was re-derived from the working tree at `8dc20e8`, and each was then confirmed to exist verbatim with `grep -F`. The v2 revision's anchors were written against `090cdc4` and eight of them no longer matched after Plan B's fix wave; the eight were `TagSheet.addTag`, `TagSheet.save`, the `RecordingDetailView` delete dialog, `RecordView.finish`, the three `#Predicate` sites (whose line numbers moved), and the whole of `ManageVoiceTagsView`. Files this plan touches that did not exist at `090cdc4` (`RecordingDeleter`, `VoiceTagRenamer`, `InsightsModel`, `ManageVoiceTagsView`) are gated in Global Constraints with an `ls` and `grep` precondition, so a worker who starts on an older tree is stopped rather than left to improvise. Every step that edits a file whose shape could move again also carries the `grep` that proves the shape first.
 
 **Computed constants.** No expected value in a test is a guess:
 - `1_789_819_200` for 2026-09-19T12:00:00Z and `1_750_000_000.25` for 2025-06-15T15:06:40.250Z were computed with `datetime.timestamp()` and `datetime.fromtimestamp(...).isoformat()`, and both tests carry the command that produced them. v2 carried `1_789_128_000`, which is a different day.
 - The migration counts (20 `create policy`, 21 `to authenticated`, 25 `(select auth.uid())`, 10 `with check`, 4 storage policies, 5 `foldername` comparisons, 4 of each per-table item) were counted over the migration text with `--` comment lines stripped, and Task 6 Step 5 carries the shell loop that re-derives them. `migrationSQL()` strips those lines, so the counts are over SQL and never over the prose that quotes it.
 - The key sets in `SyncRowTests` are written out column by column against the migration's `create table` statements, and Task 8 Step 5 diffs the coding keys against the SQL columns.
-- Test-case counts per file are counted, not estimated: 1, 6, 7, 11, 17, 4, 6, 18, 8, 4, 15, 10, 14, 21, 22, 4, 8, which is 176 added to the 59 the app suite already has, so 235. Task 12 Step 1 states the arithmetic so a silently dropped file is visible.
+- Test-case counts per file are counted, not estimated: 1, 6, 7, 11, 17, 4, 6, 18, 8, 4, 15, 10, 14, 21, 22, 4, 8, which is 176 added to the 60 the app suite already has, so 236. Task 12 Step 1 states the arithmetic so a silently dropped file is visible.
 - `VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count` is used wherever the built-in tag total is needed, rather than the literal 19, so adding a tag to Plan B's list never breaks a Plan H test.
 
 **Two tests that could not fail, removed.** v2's `testAnUnconfiguredServiceNeverSignsAnyoneIn` asserted exactly what `testUnconfiguredServiceHasNoClient` asserted and is now `testAnUnconfiguredServiceRefusesToDeleteAnAccount`, which drives `deleteAccount()` and asserts the lifecycle is untouched. v2's `testASeededTagAndAPulledTagWithTheSameIdAreOneRow` reassigned a name to the value it already held; it is now Task 9's `testAPulledBuiltInTagMergesOntoTheSeededRow`, which calls `SwiftDataLocalStore.apply(tags:)` with a `VoiceTagRow` carrying `VoiceTagSeed.builtInID(...)` and then checks that a different id under the same name is a different row.
