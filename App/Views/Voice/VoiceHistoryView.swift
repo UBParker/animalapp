@@ -44,10 +44,8 @@ struct VoiceHistoryView: View {
                 }
                 .onDelete { offsets in
                     for r in offsets.map({ filtered[$0] }) {
-                        mediaStore.delete(r.audioFilename)
-                        context.delete(r)
+                        try? RecordingDeleter.delete(r, context: context, mediaStore: mediaStore)
                     }
-                    try? context.save()
                 }
             }
             // A section, not an overlay, so the filters above stay reachable when nothing matches.

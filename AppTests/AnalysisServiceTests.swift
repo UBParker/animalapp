@@ -68,4 +68,25 @@ final class AnalysisServiceTests: XCTestCase {
         XCTAssertEqual(recording.sortedVocalizations.first?.meaningTag, "Annoyed")
         XCTAssertEqual(try context.fetch(FetchDescriptor<Vocalization>()).count, 1)
     }
+
+    /// The user can delete a recording while its analysis runs. The deleted model has no context,
+    /// and applying a result to it would insert sounds hanging off a row the store already dropped.
+    func testApplyToADeletedRecordingIsANoOp() throws {
+        let context = try TestSupport.container().mainContext
+        let recording = VoiceRecording(audioFilename: "doomed-audio.m4a", durationS: 1.0)
+        context.insert(recording)
+        try context.save()
+        context.delete(recording)
+        try context.save()
+
+        let result = AnalysisService.Result(durationS: 2.0,
+                                            events: [(segment: Segment(startS: 0, endS: 0.4), features: VoiceFixtures.features())])
+        XCTAssertNoThrow(try AnalysisService.apply(result, to: recording, context: context))
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<VoiceRecording>()).count, 0)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Vocalization>()).count, 0)
+        XCTAssertEqual(recording.status, .recorded, "no status is written onto a deleted recording")
+        XCTAssertEqual(recording.durationS, 1.0, "no duration is written onto a deleted recording")
+        XCTAssertFalse(context.hasChanges, "nothing is left pending on the context")
+    }
 }

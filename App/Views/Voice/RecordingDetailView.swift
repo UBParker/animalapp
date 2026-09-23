@@ -76,14 +76,11 @@ struct RecordingDetailView: View {
             Button("Delete", role: .destructive) {
                 player.stop()
                 // Dismiss first, then delete: a body re-evaluated after the delete would read a
-                // deleted model. The captures keep what the delete needs once `recording` is gone.
-                let filename = recording.audioFilename
+                // deleted model. The capture keeps what the delete needs once `recording` is gone.
                 let doomed = recording
                 dismiss()
                 Task { @MainActor in
-                    mediaStore.delete(filename)
-                    context.delete(doomed)
-                    try? context.save()
+                    try? RecordingDeleter.delete(doomed, context: context, mediaStore: mediaStore)
                 }
             }
         }
@@ -91,6 +88,8 @@ struct RecordingDetailView: View {
     }
 
     private func reanalyze() {
+        // Deleted out from under this screen: there is no row left to re-analyze.
+        guard recording.modelContext != nil else { return }
         reanalyzing = true
         var config = SegmenterConfig()
         config.relativeThresholdDb = Float(thresholdDb)

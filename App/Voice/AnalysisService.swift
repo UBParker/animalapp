@@ -22,8 +22,11 @@ enum AnalysisService {
     }
 
     /// Replaces the recording's vocalizations with the result and re-applies recording-level tags.
+    /// A recording deleted while the analysis ran has no context left; the result is dropped rather
+    /// than written, which would otherwise insert sounds hanging off a row that no longer exists.
     @MainActor
     static func apply(_ result: Result, to recording: VoiceRecording, context: ModelContext) throws {
+        guard recording.modelContext != nil else { return }
         for old in recording.vocalizations ?? [] { context.delete(old) }
         for event in result.events {
             let v = Vocalization(segment: event.segment, features: event.features)
@@ -43,6 +46,7 @@ enum AnalysisService {
                         segmenter: SegmenterConfig = .init()) async {
         let filename = recording.audioFilename
         guard mediaStore.exists(filename) else {
+            guard recording.modelContext != nil else { return }
             recording.status = .failed
             recording.errorMessage = AnalysisError.missingAudio(filename).localizedDescription
             try? context.save()
@@ -55,6 +59,9 @@ enum AnalysisService {
             }.value
             try apply(result, to: recording, context: context)
         } catch {
+            // The await above gives the user time to delete this recording; a deleted model has no
+            // context, and writing a failure onto it would resurrect a row the store already dropped.
+            guard recording.modelContext != nil else { return }
             recording.status = .failed
             recording.errorMessage = error.localizedDescription
             try? context.save()

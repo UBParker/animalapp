@@ -1,7 +1,9 @@
 import AVFoundation
 import Foundation
 
-/// Plays a recording, or a time range within it, from a file URL.
+/// Plays a recording, or a time range within it, from a file URL. Main actor: every caller is a
+/// SwiftUI view, and `isPlaying` and `playingID` drive those views directly.
+@MainActor
 final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var isPlaying = false
     @Published private(set) var playingID: UUID?
@@ -26,7 +28,7 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 // .common mode, like Recorder's meter timer: a default-mode timer is starved while
                 // the user drags a scroll view, and the clip would play past its end.
                 let t = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
-                    DispatchQueue.main.async { self?.stop() }
+                    Task { @MainActor in self?.stop() }
                 }
                 RunLoop.main.add(t, forMode: .common)
                 stopTimer = t
@@ -46,7 +48,10 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         playingID = nil
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async { if player === self.player { self.stop() } }
+    /// AVFoundation calls this off any queue, so it hops back to the actor before touching state.
+    nonisolated func audioPlayerDidFinishPlaying(_ finished: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            if finished === self.player { self.stop() }
+        }
     }
 }
