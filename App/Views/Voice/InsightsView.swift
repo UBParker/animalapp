@@ -7,11 +7,9 @@ struct InsightsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.selectedAnimal) private var animal
     @Query private var recordings: [VoiceRecording]   // observed so the view refreshes when data changes
-
-    private var summary: InsightsSummary? {
-        guard let animal else { return nil }
-        return try? InsightsModel.summarize(animal: animal, context: context)
-    }
+    /// Cached rather than computed in `body`: summarizing runs a leave-one-out evaluation, and a
+    /// computed property would rerun it on every re-render, including every scroll tick.
+    @State private var summary: InsightsSummary?
 
     var body: some View {
         List {
@@ -46,16 +44,33 @@ struct InsightsView: View {
                         .chartLegend(position: .bottom)
                         .frame(height: 260)
                     }
+                    if summary.unvoicedCount > 0 {
+                        Text("\(summary.unvoicedCount) sound\(summary.unvoicedCount == 1 ? " is" : "s are") unvoiced and not plotted.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Section("Labeled sounds per meaning") {
                     ForEach(summary.labelCounts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }, id: \.key) { label, n in
                         LabeledContent(label, value: "\(n)")
                     }
                 }
-            } else {
+            } else if animal == nil {
                 Text("Select an animal to see insights.").foregroundStyle(.secondary)
+            } else {
+                // An animal is selected but its summary is still being built off the main actor.
+                ProgressView().frame(maxWidth: .infinity)
             }
         }
+        .task(id: animal?.id) { await reload() }
+        .onChange(of: recordings.count) { _, _ in Task { await reload() } }
+    }
+
+    private func reload() async {
+        guard let animal else {
+            summary = nil
+            return
+        }
+        summary = try? await InsightsModel.summary(for: animal, context: context)
     }
 }
 

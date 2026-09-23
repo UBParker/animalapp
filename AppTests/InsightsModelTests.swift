@@ -16,6 +16,7 @@ final class InsightsModelTests: XCTestCase {
         XCTAssertEqual(s.labelCounts, ["Hungry": 2, "Annoyed": 2])
         XCTAssertEqual(s.legendOrder, ["Annoyed", "Hungry"]) // tie on count, alphabetical
         XCTAssertEqual(s.points.count, 3, "unvoiced sounds have no pitch to plot")
+        XCTAssertEqual(s.unvoicedCount, 1, "the labeled sound with no pitch is counted, not plotted")
         guard case .notReady = s.readiness else { return XCTFail("expected notReady") }
         XCTAssertNil(s.evaluation)
     }

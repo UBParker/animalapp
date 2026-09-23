@@ -227,7 +227,7 @@ Snapshot structs (`PressSnapshot`, `FeedingSnapshot`, `PoopSnapshot`, `HealthSna
 
 ### Voice packages (already planned in detail in `docs/superpowers/plans/2026-09-15-cat-voice.md`, tasks 2 to 13)
 
-`AnimalVoiceAudio` (Accelerate, AVFoundation): `AudioLoader` (any file to 16 kHz mono Float32), `Segmenter` (40 ms frames, 20 ms hop, active within 20 dB of the loudest frame and above -50 dBFS, drop runs under 80 ms, bridge gaps under 100 ms), `PitchTracker` (YIN, 60 to 3000 Hz, voiced when aperiodicity < 0.3), `SpectralAnalyzer` (1024-point FFT, hop 320, 26 slaney mel bands, 13 MFCCs, librosa-compatible), `FeatureExtractor` producing `VocalFeatures` (21-column vector, NaN for missing), `Recorder` (AVAudioRecorder, m4a, live level).
+`AnimalVoiceAudio` (Accelerate, AVFoundation): `AudioLoader` (any file to 16 kHz mono Float32), `Segmenter` (40 ms frames, 20 ms hop, active within 20 dB of the loudest frame and above -50 dBFS, drop runs under 80 ms, bridge gaps under 100 ms), `PitchTracker` (YIN, 60 to 3000 Hz, voiced when aperiodicity < 0.3), `SpectralAnalyzer` (1024-point FFT, hop 320, 26 slaney mel bands, 13 MFCCs, librosa-compatible), `FeatureExtractor` producing `VocalFeatures` (21-column vector, NaN for missing), `Recorder` (AVAudioRecorder, m4a, live level). f0 statistics ignore voiced frames more than an octave from the median voiced f0 (octave-error rejection); voicedFraction counts all voiced frames.
 
 `AnimalVoiceStats` (pure Swift): `Standardizer` (NaN-aware), `KNNClassifier` (k = 5, distance-weighted), `NaiveBayesClassifier` (Gaussian, variance floor), `Ensemble` (average), `Evaluator.leaveOneOut`, `Readiness` (at least 2 meanings with at least 5 labeled sounds each), `ResearchPrior.hint(species:…)` (cats only).
 

@@ -5,6 +5,10 @@ import SwiftUI
 struct RecordView: View {
     static let maxSeconds: TimeInterval = 300
 
+    /// Raised while this view holds a live recorder or an analysis, so the section picker above can
+    /// lock itself out rather than unmount the recorder mid-take.
+    @Binding var isBusy: Bool
+
     @Environment(\.modelContext) private var context
     @Environment(\.mediaStore) private var mediaStore
     @Environment(\.selectedAnimal) private var animal
@@ -46,6 +50,14 @@ struct RecordView: View {
         .onChange(of: recorder.elapsedS) { _, t in
             if recorder.isRecording, t >= Self.maxSeconds { finish() }
         }
+        .onChange(of: recorder.isRecording) { _, recording in isBusy = recording || isAnalyzing }
+        .onChange(of: isAnalyzing) { _, analyzing in isBusy = analyzing || recorder.isRecording }
+        .onDisappear {
+            // Torn down mid-take (the animal changed, or the tab did): keep the audio rather than
+            // drop it, by running the same finish the stop button runs.
+            if recorder.isRecording { finish() }
+            isBusy = false
+        }
         .alert("Microphone access needed", isPresented: $permissionDenied) {
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
@@ -79,7 +91,10 @@ struct RecordView: View {
         guard let url = recorder.stop() else { return }
         isAnalyzing = true
         Task {
-            defer { isAnalyzing = false }
+            defer {
+                isAnalyzing = false
+                try? FileManager.default.removeItem(at: url)
+            }
             var stored: String?
             var inserted: VoiceRecording?
             do {
@@ -90,6 +105,8 @@ struct RecordView: View {
                 inserted = recording
                 try context.save()
                 await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context)
+                // Deleted while the analysis ran: a tagging sheet bound to a deleted model traps.
+                guard recording.modelContext != nil else { return }
                 pendingRecording = recording
             } catch {
                 // Saving failed after the audio landed in the store, so drop both halves: the file it
@@ -98,7 +115,6 @@ struct RecordView: View {
                 if let stored { mediaStore.delete(stored) }
                 errorMessage = "Could not save the recording: \(error.localizedDescription)"
             }
-            try? FileManager.default.removeItem(at: url)
         }
     }
 

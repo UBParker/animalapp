@@ -30,12 +30,12 @@ final class PredictionServiceTests: XCTestCase {
         return animal
     }
 
-    func testReadyAnimalPredictsNearestMeaning() throws {
+    func testReadyAnimalPredictsNearestMeaning() async throws {
         let context = try TestSupport.container().mainContext
         let animal = try makeAnimal(context: context, hungry: 6, annoyed: 6)
         XCTAssertEqual(try PredictionService.labeledSamples(for: animal, context: context).count, 12, "Unknown and untagged sounds are excluded")
 
-        let result = try PredictionService.predict(features: VoiceFixtures.features(duration: 0.35, f0: 780, slope: 150), for: animal, context: context)
+        let result = try await PredictionService.predict(features: VoiceFixtures.features(duration: 0.35, f0: 780, slope: 150), for: animal, context: context)
         guard case .ready = result.readiness else { return XCTFail("expected ready, got \(result.readiness)") }
         XCTAssertEqual(result.prediction?.best?.label, "Hungry")
         XCTAssertGreaterThan(result.prediction?.best?.probability ?? 0, 0.8)
@@ -45,18 +45,18 @@ final class PredictionServiceTests: XCTestCase {
         XCTAssertNotNil(result.researchHint, "cats get the Meowsic hint")
     }
 
-    func testDogGetsNoResearchHint() throws {
+    func testDogGetsNoResearchHint() async throws {
         let context = try TestSupport.container().mainContext
         let animal = try makeAnimal(context: context, hungry: 6, annoyed: 6, species: "dog")
-        let result = try PredictionService.predict(features: VoiceFixtures.features(duration: 0.35, f0: 780, slope: 150), for: animal, context: context)
+        let result = try await PredictionService.predict(features: VoiceFixtures.features(duration: 0.35, f0: 780, slope: 150), for: animal, context: context)
         XCTAssertEqual(result.prediction?.best?.label, "Hungry")
         XCTAssertNil(result.researchHint)
     }
 
-    func testNotReadyAnimal() throws {
+    func testNotReadyAnimal() async throws {
         let context = try TestSupport.container().mainContext
         let animal = try makeAnimal(context: context, hungry: 5, annoyed: 3)
-        let result = try PredictionService.predict(features: VoiceFixtures.features(), for: animal, context: context)
+        let result = try await PredictionService.predict(features: VoiceFixtures.features(), for: animal, context: context)
         guard case let .notReady(_, needed) = result.readiness else { return XCTFail("expected notReady") }
         XCTAssertEqual(needed, ["Annoyed": 2])
         XCTAssertNil(result.prediction)
@@ -64,7 +64,7 @@ final class PredictionServiceTests: XCTestCase {
     }
 
     /// Two animals with full, disjoint label sets in one store: neither one's sounds may reach the other's model.
-    func testOtherAnimalsDataIsNotUsed() throws {
+    func testOtherAnimalsDataIsNotUsed() async throws {
         let context = try TestSupport.container().mainContext
         let miso = try makeAnimal(context: context, hungry: 6, annoyed: 6)
         let rex = try makeAnimal(context: context, hungry: 6, annoyed: 6, species: "dog", name: "Rex",
@@ -77,12 +77,12 @@ final class PredictionServiceTests: XCTestCase {
         XCTAssertEqual(try PredictionService.labeledSamples(for: rex, context: context).count, 12)
 
         let query = VoiceFixtures.features(duration: 0.35, f0: 780, slope: 150)
-        let forMiso = try PredictionService.predict(features: query, for: miso, context: context)
+        let forMiso = try await PredictionService.predict(features: query, for: miso, context: context)
         XCTAssertEqual(forMiso.evaluation?.n, 12, "Trained on Miso's 12 labeled sounds, not all 24 in the store")
         XCTAssertEqual(Set(try XCTUnwrap(forMiso.prediction).probabilities.keys), ["Hungry", "Annoyed"])
         XCTAssertTrue(forMiso.neighbors.allSatisfy { $0.recording?.animal?.id == miso.id })
 
-        let forRex = try PredictionService.predict(features: query, for: rex, context: context)
+        let forRex = try await PredictionService.predict(features: query, for: rex, context: context)
         XCTAssertEqual(forRex.evaluation?.n, 12)
         XCTAssertEqual(Set(try XCTUnwrap(forRex.prediction).probabilities.keys), ["Playful", "Scared"])
         XCTAssertTrue(forRex.neighbors.allSatisfy { $0.recording?.animal?.id == rex.id })

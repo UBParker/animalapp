@@ -4,6 +4,10 @@ import SwiftData
 import SwiftUI
 
 struct AskView: View {
+    /// Raised while this view holds a live recorder or an analysis, so the section picker above can
+    /// lock itself out rather than unmount the recorder mid-take.
+    @Binding var isBusy: Bool
+
     @Environment(\.modelContext) private var context
     @Environment(\.mediaStore) private var mediaStore
     @Environment(\.selectedAnimal) private var animal
@@ -62,7 +66,23 @@ struct AskView: View {
             if recorder.isRecording, t >= RecordView.maxSeconds { finish() }
         }
         .alert("Microphone access needed", isPresented: $permissionDenied) { Button("OK") {} }
-        .onDisappear { player.stop() }
+        // Results are read only against the animal they were predicted for; another animal's model
+        // has different labels, so the old batch is cleared rather than left on screen.
+        .onChange(of: animal?.id) { _, _ in
+            results = []
+            recording = nil
+        }
+        .onChange(of: recorder.isRecording) { _, active in isBusy = active || isAnalyzing }
+        .onChange(of: isAnalyzing) { _, analyzing in isBusy = analyzing || recorder.isRecording }
+        .onDisappear {
+            player.stop()
+            // Ask never keeps a take it could not score, so a recorder still running when this view
+            // goes away is stopped and its temp file removed rather than left in the temp directory.
+            if recorder.isRecording, let url = recorder.stop() {
+                try? FileManager.default.removeItem(at: url)
+            }
+            isBusy = false
+        }
     }
 
     private func toggle() {
@@ -98,8 +118,11 @@ struct AskView: View {
                 saved = true
                 await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
                 recording = newRecording
-                results = try newRecording.sortedVocalizations.map {
-                    ($0, try PredictionService.predict(features: $0.features, for: animal, context: context))
+                // One context for the whole batch: readiness and the leave-one-out evaluation are the
+                // same for every sound in it, and leave-one-out is the expensive half of a prediction.
+                let batch = try await PredictionService.makeContext(for: animal, context: context)
+                results = newRecording.sortedVocalizations.map {
+                    ($0, PredictionService.predict(features: $0.features, in: batch))
                 }
             } catch {
                 // Only the pre-save failures leave nothing worth keeping: drop the audio file the row

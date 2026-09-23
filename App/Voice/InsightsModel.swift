@@ -19,6 +19,10 @@ struct InsightsSummary: Equatable {
     var points: [Point]
     /// Meanings in fixed display order (count descending, then name), with "Other" last when folded.
     var legendOrder: [String]
+
+    /// Labeled sounds with no pitch to plot. The scatter is duration against pitch, so an unvoiced
+    /// sound counts towards readiness and accuracy but never appears as a point.
+    var unvoicedCount: Int { labeledCount - points.count }
 }
 
 enum InsightsModel {
@@ -56,12 +60,15 @@ enum InsightsModel {
                                readiness: readiness, evaluation: evaluation, points: points, legendOrder: legend)
     }
 
+    /// Reads the store on the main actor, then summarizes off it: `Item` is a value type, so the
+    /// detached task never touches a model object. The leave-one-out evaluation inside `summarize`
+    /// is O(n^2) ensemble fits, which is more than a scroll can afford on the main actor.
     @MainActor
-    static func summarize(animal: Animal, context: ModelContext) throws -> InsightsSummary {
+    static func summary(for animal: Animal, context: ModelContext) async throws -> InsightsSummary {
         let animalID = animal.id
         let recordings = try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animal?.id == animalID }))
         let items = recordings.flatMap { $0.vocalizations ?? [] }
             .map { Item(id: $0.id, features: $0.features, meaning: $0.meaningTag) }
-        return summarize(items)
+        return await Task.detached(priority: .userInitiated) { summarize(items) }.value
     }
 }
