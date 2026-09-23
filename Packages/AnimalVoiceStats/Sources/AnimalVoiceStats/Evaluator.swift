@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Evaluation: Equatable {
+public struct Evaluation: Equatable, Sendable {
     public var accuracy: Double
     public var perClassRecall: [String: Double]
     public var n: Int

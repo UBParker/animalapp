@@ -1,7 +1,7 @@
 import Foundation
 
 /// One labeled vocalization: a fixed-order feature vector (NaN = missing) and its meaning label.
-public struct LabeledSample: Equatable {
+public struct LabeledSample: Equatable, Sendable {
     public let id: UUID
     public let features: [Double]
     public let label: String

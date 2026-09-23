@@ -1,7 +1,7 @@
 import Foundation
 
 /// Column-wise z-scoring. NaN cells are ignored when fitting and map to 0 (the mean) when transforming.
-public struct Standardizer: Equatable {
+public struct Standardizer: Equatable, Sendable {
     public let means: [Double]
     public let stds: [Double]
 

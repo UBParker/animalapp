@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ReadinessStatus: Equatable {
+public enum ReadinessStatus: Equatable, Sendable {
     case ready(labels: [String])
     case notReady(message: String, needed: [String: Int])
 }

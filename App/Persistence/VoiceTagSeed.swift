@@ -29,16 +29,23 @@ enum VoiceTagSeed {
                            b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
     }
 
-    /// Inserts any built-in tag whose name is missing. Returns how many were added.
+    /// Inserts the built-in tags that are not in the store yet. Returns how many were added.
+    ///
+    /// Identity is the deterministic id, not the name: a built-in the user renamed still has the id
+    /// its original name hashes to, so it is recognised and left alone rather than re-inserted
+    /// alongside the rename. The name is checked too, so a tag the user created by hand under a
+    /// built-in's name is not shadowed by a second row carrying the same name.
     @discardableResult
     static func seedIfNeeded(context: ModelContext) throws -> Int {
         let existing = try context.fetch(FetchDescriptor<VoiceTag>())
+        let ids = Set(existing.map(\.id))
         var added = 0
         func seed(_ names: [String], kind: VoiceTagKind) {
             let present = Set(existing.filter { $0.kind == kind }.map(\.name))
-            for (i, name) in names.enumerated() where !present.contains(name) {
-                context.insert(VoiceTag(id: builtInID(kind: kind, name: name), kind: kind, name: name,
-                                        isBuiltIn: true, sortOrder: i))
+            for (i, name) in names.enumerated() {
+                let id = builtInID(kind: kind, name: name)
+                guard !ids.contains(id), !present.contains(name) else { continue }
+                context.insert(VoiceTag(id: id, kind: kind, name: name, isBuiltIn: true, sortOrder: i))
                 added += 1
             }
         }

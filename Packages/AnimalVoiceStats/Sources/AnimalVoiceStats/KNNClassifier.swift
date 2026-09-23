@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Prediction: Equatable {
+public struct Prediction: Equatable, Sendable {
     /// Probability per label, sums to 1 (empty when there is no training data).
     public var probabilities: [String: Double]
     /// Ids of the nearest training samples, closest first.

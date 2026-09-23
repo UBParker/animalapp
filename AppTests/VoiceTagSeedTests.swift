@@ -54,4 +54,37 @@ final class VoiceTagSeedTests: XCTestCase {
         XCTAssertEqual(tags.first { $0.kind == .meaning && $0.name == "Hungry" }?.id,
                        VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry"))
     }
+
+    /// A renamed built-in keeps the id its original name hashes to, so the next seed recognises it
+    /// and leaves it alone. Matching on the name alone would insert "Hungry" back alongside it.
+    func testSeedDoesNotReinsertARenamedBuiltIn() throws {
+        let context = try TestSupport.container().mainContext
+        VoiceTagSeed.run(context)
+        let hungry = try XCTUnwrap(try context.fetch(FetchDescriptor<VoiceTag>())
+            .first { $0.kind == .meaning && $0.name == "Hungry" })
+        try VoiceTagRenamer.rename(tag: hungry, to: "Wants food", context: context)
+
+        XCTAssertEqual(try VoiceTagSeed.seedIfNeeded(context: context), 0, "nothing is missing")
+        let tags = try context.fetch(FetchDescriptor<VoiceTag>())
+        XCTAssertEqual(tags.count, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count)
+        XCTAssertNil(tags.first { $0.kind == .meaning && $0.name == "Hungry" }, "the old name is gone")
+        XCTAssertEqual(tags.first { $0.id == VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry") }?.name,
+                       "Wants food", "the row kept its id under the new name")
+    }
+
+    /// A tag the user created by hand under a built-in's name has its own random id, so the id check
+    /// alone would insert a second row with the same name. The name check still catches it.
+    func testSeedSkipsAUserCreatedTagSharingABuiltInName() throws {
+        let context = try TestSupport.container().mainContext
+        let mine = VoiceTag(kind: .meaning, name: "Hungry")
+        context.insert(mine)
+        try context.save()
+
+        VoiceTagSeed.run(context)
+
+        let tags = try context.fetch(FetchDescriptor<VoiceTag>())
+        XCTAssertEqual(tags.filter { $0.kind == .meaning && $0.name == "Hungry" }.count, 1)
+        XCTAssertEqual(tags.count, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count)
+        XCTAssertEqual(mine.id, tags.first { $0.name == "Hungry" }?.id, "the user's row is the one that stayed")
+    }
 }
