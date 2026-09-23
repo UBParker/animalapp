@@ -23,6 +23,9 @@ public enum AudioLoader {
               let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
             throw AudioLoaderError.conversionFailed("cannot build converter from \(srcFormat)")
         }
+        // Without this the converter keeps channel 0 only (channelMap == [0]); we want the
+        // channels averaged so a stereo recording does not lose whatever is on the right.
+        converter.downmix = true
         let ratio = targetSampleRate / srcFormat.sampleRate
         let dstCapacity = AVAudioFrameCount(Double(src.frameLength) * ratio) + 4096
         guard let dst = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: dstCapacity) else {

@@ -12,7 +12,9 @@ enum TestSignals {
     }
 
     /// Writes mono samples to a 16-bit PCM WAV, duplicating the channel if `channels` > 1.
-    static func writeWav(_ samples: [Float], sampleRate: Double, channels: Int = 1) throws -> URL {
+    /// Pass `rightSamples` with `channels == 2` to give the right channel a distinct signal
+    /// (must have the same count as `samples`).
+    static func writeWav(_ samples: [Float], sampleRate: Double, channels: Int = 1, rightSamples: [Float]? = nil) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("animalvoice-\(UUID().uuidString).wav")
         let settings: [String: Any] = [
@@ -28,8 +30,10 @@ enum TestSignals {
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
         buffer.frameLength = AVAudioFrameCount(samples.count)
         for c in 0..<channels {
-            samples.withUnsafeBufferPointer { src in
-                buffer.floatChannelData![c].update(from: src.baseAddress!, count: samples.count)
+            let channelSamples = (c == 1 && channels == 2) ? (rightSamples ?? samples) : samples
+            precondition(channelSamples.count == samples.count, "rightSamples must match samples count")
+            channelSamples.withUnsafeBufferPointer { src in
+                buffer.floatChannelData![c].update(from: src.baseAddress!, count: channelSamples.count)
             }
         }
         try file.write(from: buffer)

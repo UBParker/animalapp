@@ -18,6 +18,15 @@ final class AudioLoaderTests: XCTestCase {
         XCTAssertGreaterThan(buffer.samples.map(abs).max() ?? 0, 0.5)
     }
 
+    func testStereoIsAveragedNotLeftOnly() throws {
+        let left = [Float](repeating: 0.4, count: 48_000)
+        let right = [Float](repeating: 0.2, count: 48_000)
+        let url = try TestSignals.writeWav(left, sampleRate: 48_000, channels: 2, rightSamples: right)
+        let buffer = try AudioLoader.load(url)
+        XCTAssertEqual(buffer.samples[8_000], 0.3, accuracy: 0.02)
+        XCTAssertLessThan(buffer.samples.max() ?? 0, 0.35)
+    }
+
     func testMissingFileThrows() {
         XCTAssertThrowsError(try AudioLoader.load(URL(fileURLWithPath: "/nonexistent.wav")))
     }
