@@ -11,7 +11,8 @@ final class VoiceTag {
     var isBuiltIn: Bool = false
     var sortOrder: Int = 0
 
-    init(kind: VoiceTagKind, name: String, isBuiltIn: Bool = false, sortOrder: Int = 0) {
+    init(id: UUID = UUID(), kind: VoiceTagKind, name: String, isBuiltIn: Bool = false, sortOrder: Int = 0) {
+        self.id = id
         self.kindRaw = kind.rawValue
         self.name = name
         self.isBuiltIn = isBuiltIn

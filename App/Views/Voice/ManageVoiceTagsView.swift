@@ -1,8 +1,10 @@
 import SwiftData
 import SwiftUI
 
-/// Rename or add activity and meaning tags. Built-in tags can be renamed but not deleted; custom tags delete freely
-/// (labels on existing sounds keep the old name, which is why rename is the safer edit).
+/// Rename or add activity and meaning tags. Renaming migrates the labels already written onto
+/// recordings and sounds, so nothing is left pointing at a name the pickers no longer offer.
+/// Built-in tags can be renamed but not deleted; custom tags delete freely (their labels stay on
+/// existing sounds, which is why rename is the safer edit).
 /// The built-in "Unknown" meaning is reserved: the model treats it as "not labeled", so it cannot be renamed.
 struct ManageVoiceTagsView: View {
     @Environment(\.modelContext) private var context
@@ -74,11 +76,9 @@ struct ManageVoiceTagsView: View {
         return nil
     }
 
+    /// The rename and the migration of every label already carrying the old name land in one save.
     private func rename(_ tag: VoiceTag, to name: String) {
-        // A model deleted out from under the row has no context; writing to it would be a write to nothing.
-        guard tag.modelContext != nil else { return }
-        tag.name = name
-        try? context.save()
+        try? VoiceTagRenamer.rename(tag: tag, to: name, context: context)
     }
 }
 
