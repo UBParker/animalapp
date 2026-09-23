@@ -74,21 +74,35 @@ struct AskView: View {
     /// Saves the new recording (so corrections become training data) and predicts each detected sound.
     private func finish() {
         let elapsed = recorder.elapsedS
-        guard let url = recorder.stop(), let animal else { return }
+        guard let url = recorder.stop() else { return }
+        guard let animal else { try? FileManager.default.removeItem(at: url); return }
         isAnalyzing = true
         Task {
             defer { isAnalyzing = false }
+            var stored: String?
+            var inserted: VoiceRecording?
+            var saved = false
             do {
                 let filename = try mediaStore.saveAudio(from: url)
+                stored = filename
                 let newRecording = VoiceRecording(audioFilename: filename, durationS: elapsed, animal: animal)
                 context.insert(newRecording)
+                inserted = newRecording
                 try context.save()
+                saved = true
                 await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
                 recording = newRecording
                 results = try newRecording.sortedVocalizations.map {
                     ($0, try PredictionService.predict(features: $0.features, for: animal, context: context))
                 }
             } catch {
+                // Only the pre-save failures leave nothing worth keeping: drop the audio file the row
+                // would have owned and the row that would otherwise autosave pointing at nothing. A
+                // later failure (analysis, prediction) happens on a recording that is legitimately saved.
+                if !saved {
+                    if let inserted { context.delete(inserted) }
+                    if let stored { mediaStore.delete(stored) }
+                }
                 errorMessage = "Could not process the recording: \(error.localizedDescription)"
             }
             try? FileManager.default.removeItem(at: url)
