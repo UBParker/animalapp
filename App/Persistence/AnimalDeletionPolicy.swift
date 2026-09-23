@@ -5,9 +5,10 @@ import SwiftData
 enum AnimalDeletionPolicy {
     /// Record counts by domain name. Each domain plan adds one entry here.
     static func recordCounts(for animal: Animal, context: ModelContext) throws -> [String: Int] {
-        let counts: [String: Int] = [:]
-        _ = animal
-        _ = context
+        var counts: [String: Int] = [:]
+        let animalID = animal.id
+        counts["voice recordings"] = try context.fetchCount(
+            FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animal?.id == animalID }))
         return counts
     }
 

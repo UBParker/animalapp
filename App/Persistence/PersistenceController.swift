@@ -8,6 +8,9 @@ enum PersistenceController {
     /// Every @Model type in the app. Later plans append their models here.
     static let modelTypes: [any PersistentModel.Type] = [
         Animal.self,
+        VoiceRecording.self,
+        Vocalization.self,
+        VoiceTag.self,
     ]
 
     static var schema: Schema { Schema(modelTypes) }

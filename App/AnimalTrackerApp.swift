@@ -32,7 +32,9 @@ struct AnimalTrackerApp: App {
 
 /// One-time seeds. Later plans append their seed functions to `all`.
 enum Seeds {
-    static let all: [(ModelContext) -> Void] = []
+    static let all: [(ModelContext) -> Void] = [
+        VoiceTagSeed.run,
+    ]
 
     static func runAll(context: ModelContext) {
         for seed in all { seed(context) }
