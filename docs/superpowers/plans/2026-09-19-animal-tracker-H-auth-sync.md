@@ -8,34 +8,48 @@
 
 **Tech Stack:** Swift 5 language mode, iOS 17, SwiftUI, SwiftData, XCTest, XcodeGen, AuthenticationServices, CryptoKit, supabase-swift 2.55.x (the only third-party package), Supabase Postgres with Row Level Security, Supabase Storage, the Supabase CLI.
 
-**Spec:** `docs/superpowers/specs/2026-09-16-animal-tracker-design.md`, in particular "Addendum v7 (2026-09-19): Supabase backend and Sign in with Apple" and "Addendum v7.1 (2026-09-22): rulings after the three-way review of Plan H", plus `docs/superpowers/specs/2026-09-18-model-contract.md` for field names. The consolidated review findings this revision answers are in `.superpowers/sdd/planH-review-findings.md`.
+**Spec:** `docs/superpowers/specs/2026-09-16-animal-tracker-design.md`, in particular "Addendum v7 (2026-09-19): Supabase backend and Sign in with Apple" and "Addendum v7.1 (2026-09-22): rulings after the three-way review of Plan H", plus `docs/superpowers/specs/2026-09-18-model-contract.md` for field names. The consolidated review findings this revision answers are in `.superpowers/sdd/planH-review-findings.md`, and the two verifiers' findings against v2 are in `.superpowers/sdd/planH-v2-verification.md`.
 
 ## Global Constraints
 
+- **Plan B Task 18 and the Plan B fix wave must be complete before Plan H Task 1 starts.** Task 11 Step 9 edits `App/Views/Voice/ManageVoiceTagsView.swift`, `App/Voice/RecordingDeleter.swift` and `App/Voice/VoiceTagRenamer.swift`; Task 7 Step 3 edits the `#Predicate` in `App/Voice/InsightsModel.swift`. None of those files existed at the v2 baseline `090cdc4`. Every anchor in this plan was re-derived from the tree at `a9de821`, after the fix wave `ecd5fbf`, `3301165`, `da34031`, `595412f`, `a9de821`. Check before starting:
+  ```bash
+  cd /Users/asheslab/Documents/work/cat-voice
+  ls App/Views/Voice/ManageVoiceTagsView.swift App/Views/Voice/InsightsView.swift \
+     App/Voice/InsightsModel.swift App/Voice/RecordingDeleter.swift App/Voice/VoiceTagRenamer.swift
+  grep -n 'NavigationLink("Voice tags")' App/Views/Settings/SettingsView.swift
+  grep -n 'static func builtInID' App/Persistence/VoiceTagSeed.swift
+  grep -n 'isBusy' App/Views/Voice/RecordView.swift App/Views/Voice/AskView.swift | head -4
+  scripts/test-app.sh | tail -3
+  ```
+  Expected: all five files exist; the Settings link, `VoiceTagSeed.builtInID` and the `isBusy` bindings all print; and the app suite reports 59 tests with 0 failures (packages: 28 audio, 28 stats). If any file is missing or `builtInID` does not exist, stop: this plan builds on that work rather than repeating it.
+- **Do not re-create what Plan B already shipped.** `VoiceTagSeed.builtInID(kind:name:)` (UUID v5 over the RFC 4122 DNS namespace and `"kind:name"`), `VoiceTagSeed.seedIfNeeded(context:)` matching on id *and* name, `VoiceTagSeed.run(_:)` seeding on every launch with no UserDefaults guard, `RecordingDeleter.delete(_:context:mediaStore:)` and `VoiceTagRenamer.rename(tag:to:context:)` all exist. This plan calls them; it does not rewrite them. There is no `UUID.v5` extension and no `builtInNamespace` symbol in the tree, and this plan adds neither.
 - Swift 5 language mode (`SWIFT_VERSION: "5.0"` in `project.yml`), iOS deployment target 17.0.
-- The only third-party package in the app is `supabase-swift`. The two local packages `AnimalVoiceAudio` and `AnimalVoiceStats` stay as they are.
+- The only third-party package in the app is `supabase-swift`, pinned `from: "2.55.2"` (the newest release on 2026-09-23, confirmed at https://github.com/supabase/supabase-swift/releases/tag/v2.55.2). The two local packages `AnimalVoiceAudio` and `AnimalVoiceStats` stay as they are.
 - Supabase project ref: `ojzmtyapkaxxliuurssc`. Project URL: `https://ojzmtyapkaxxliuurssc.supabase.co`.
 - Bundle id `com.ashlab.AnimalTracker`. Apple Developer team `A5S59B326M`.
 - The anon key is public and is committed in `App/Config/Supabase.plist` (spec Addendum v7.1). The database password, any `sb_secret_` or service-role key, and `SUPABASE_ACCESS_TOKEN` never enter the repo; a pre-push guard enforces that.
-- Every model that syncs (`Animal`, `VoiceRecording`, `Vocalization`, `VoiceTag`) has `@Attribute(.unique) var id: UUID`, `var createdAt: Date = Date()` and `var updatedAt: Date = Date()`. Every stored property has a default or is optional. CloudKit stays off (`cloudKitDatabase: .none`).
+- Every model that syncs (`Animal`, `VoiceRecording`, `Vocalization`, `VoiceTag`) has `@Attribute(.unique) var id: UUID`, `var createdAt: Date = Date()` and `var updatedAt: Date = Date()`. All four already carry `@Attribute(.unique) var id` on the branch, and `VoiceRecording`, `Vocalization` and `VoiceTag` already carry `updatedAt` (commit `66af968`); the only model this plan adds `updatedAt` to is `Animal`. Every stored property has a default or is optional. CloudKit stays off (`cloudKitDatabase: .none`).
 - Server columns are snake_case mirrors of the model fields. Every table has `id uuid primary key`, `user_id uuid not null default auth.uid() references auth.users(id) on delete cascade`, `updated_at timestamptz not null default now()`, `server_updated_at timestamptz not null default now()`, `deleted_at timestamptz`.
 - Row Level Security is enabled on every table, with select, insert, update and delete policies `to authenticated` keyed on `user_id = (select auth.uid())`, and `with check` on both insert and update.
 - Tests are XCTest, run with `scripts/test-app.sh`, and never touch the live network. Every remote interaction in a test goes through `InMemoryRemoteStore`. Every test that touches an on-disk SwiftData store passes its own temporary `url:`.
 - TDD per task: write the failing test, run it and see it fail, implement, run it and see it pass, commit.
 - Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Plan A is implemented (`AnimalTrackerApp`, `RootTabView`, `SettingsView`, `PersistenceController`, `Seeds`, `KeychainStore`, `MediaStore` with `\.mediaStore`, `ManageAnimalsView`, `AnimalFormView`). Plan B tasks 13 to 18 are implemented (`VoiceRecording`, `Vocalization`, `VoiceTag`, `VoiceTagSeed`, `TagPropagation`, `AnalysisService`, `AudioPlayer`, `VoiceTabView`, `RecordView`, `TagSheet`, `VoiceHistoryView`, `RecordingDetailView`, `VocalizationEditView`, `VocalizationPlayButton`, `AskView`, `InsightsView`, `ManageVoiceTagsView`).
+- Plan A is implemented (`AnimalTrackerApp`, `RootTabView`, `SettingsView`, `PersistenceController`, `Seeds`, `KeychainStore`, `MediaStore` with `\.mediaStore`, `ManageAnimalsView`, `AnimalFormView`). Plan B tasks 13 to 18 and the fix wave after them are implemented (`VoiceRecording`, `Vocalization`, `VoiceTag`, `VoiceTagSeed` with `builtInID`, `TagPropagation`, `AnalysisService`, `RecordingDeleter`, `VoiceTagRenamer`, `AudioPlayer`, `VoiceTabView`, `RecordView`, `TagSheet`, `VoiceHistoryView`, `RecordingDetailView`, `VocalizationEditView`, `VocalizationPlayButton`, `AskView`, `InsightsModel`, `InsightsView`, `ManageVoiceTagsView`).
 
 ---
 
 ## Assumptions
 
-Every supabase-swift name below was read from the source at tag `v2.55.2`, the newest release on 2026-09-22 (https://github.com/supabase/supabase-swift/releases/tag/v2.55.2). File and line references are to that tag, so they can be re-checked. Nothing here is inferred from a prose guide alone.
+Every supabase-swift name below was read from the source at tag `v2.55.2`, still the newest release on 2026-09-23 (https://github.com/supabase/supabase-swift/releases/tag/v2.55.2). File and line references are to that tag, so they can be re-checked. Nothing here is inferred from a prose guide alone.
 
 **Package and client**
 
-- Package `https://github.com/supabase/supabase-swift`, pinned `from: "2.55.0"`, which keeps SPM inside 2.x and guarantees every symbol below.
+- Package `https://github.com/supabase/supabase-swift`, pinned `from: "2.55.2"`, which keeps SPM inside 2.x and guarantees every symbol below.
 - `SupabaseClient(supabaseURL:supabaseKey:options:)` and the convenience `SupabaseClient(supabaseURL:supabaseKey:)`. Source: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Supabase/SupabaseClient.swift
 - `SupabaseClientOptions(db:auth:global:functions:realtime:storage:)`, `SupabaseClientOptions.DatabaseOptions(schema:encoder:decoder:)`, `SupabaseClientOptions.AuthOptions(storage:redirectToURL:storageKey:flowType:encoder:decoder:autoRefreshToken:emitLocalSessionAsInitialSession:accessToken:)`. `AuthOptions.storage` is required and typed `any AuthLocalStorage`. Source: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Supabase/Types.swift
+- `AuthOptions.storageKey` is the key the session is written under. `SessionStorage.key(_:)` resolves it as `configuration.storageKey ?? defaultStorageKey`, and `defaultStorageKey` is the internal constant `"supabase.auth.token"`. This plan passes an explicit `storageKey`, so the app knows the exact keychain account its session occupies and `deleteAccount()` can remove it by name rather than hoping `signOut` did. Sources: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/Internal/SessionStorage.swift and https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/Internal/Constants.swift
+- `nonisolated public var currentSession: Session?` is `sessionStorage.get()` and nothing else: there is no in-memory cache in front of it, so removing the keychain item makes `currentSession` nil on the very next read. Source: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/AuthClient.swift
 
 **Session storage location and accessibility** (finding 22)
 
@@ -46,6 +60,7 @@ Every supabase-swift name below was read from the source at tag `v2.55.2`, the n
 **Sign-out scope** (finding 22)
 
 - `public func signOut(scope: SignOutScope = .global) async throws` and `public enum SignOutScope: String, Sendable { case global, local, others }`. This plan always passes `scope: .local`, so signing out of this phone never kills the person's session on another device. Sources: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/AuthClient.swift and https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/Types.swift
+- `signOut` returns early without throwing when `currentSession?.accessToken` is nil, removes the local session before the network call, and swallows 401, 403 and 404 from `/logout`. So after `delete_my_account()` has already killed the auth user, `signOut(scope: .local)` normally still clears the keychain. "Normally" is not good enough for an irreversible operation, which is why `deleteAccount()` removes the session item by key itself and then asserts `currentSession == nil`. Source: https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/AuthClient.swift
 
 **Session and sign-in**
 
@@ -82,7 +97,7 @@ Every supabase-swift name below was read from the source at tag `v2.55.2`, the n
 **Pagination limit** (finding 22)
 
 - Pulls request `limit: 500` per page and loop until a page comes back **empty**, not until a short page. A server or a test double is free to cap a page below the requested limit, so a short page is not proof of exhaustion; only an empty page is. The cost is one extra round trip per table per sync that finds changes.
-- The cursor is `(server_updated_at, offset)`: rows are ordered by `server_updated_at` then `id` (a total order), filtered `gte` the cursor, and `range(from: offset, to: offset + limit - 1)` skips the rows already consumed at exactly that timestamp. `server_updated_at` is set by a `before insert or update` trigger to `now()`, so a row that changes always moves to a *newer* timestamp and offset paging inside one timestamp bucket is stable.
+- The cursor is `(server_updated_at, offset)`: rows are ordered by `server_updated_at` then `id` (a total order), filtered `gte` the cursor, and `range(from: offset, to: offset + limit - 1)` walks that ordered result. `server_updated_at` is set by a `before insert or update` trigger to `now()`, so a row that changes always moves to a *newer* timestamp and offset paging inside one cycle is stable. Across cycles the offset is not trusted; see "Pull cursor resume" below.
 
 **Clock-skew handling** (finding 22)
 
@@ -92,20 +107,43 @@ Every supabase-swift name below was read from the source at tag `v2.55.2`, the n
 **Other**
 
 - Date wire format is ISO 8601 with fractional seconds, both ways. `SyncCoding.encoder` and `SyncCoding.decoder` are handed to the client as `DatabaseOptions(encoder:decoder:)`, so the values the tests exercise are literally the values that go on the wire. The decoder accepts a timestamp with or without fractional seconds, because Postgres omits them when they are zero.
-- Swift's synthesized `Codable` encodes an `Optional` property with `encodeIfPresent`, so a nil `deleted_at` or a nil `server_updated_at` is omitted from the payload rather than sent as JSON null. That is what lets one row struct serve both push (no `server_updated_at`) and pull (with it), and it is why a normal upsert cannot clear a server-side `deleted_at`.
 - Foreign keys between synced tables are deliberately omitted (`animal_id`, `recording_id` are plain `uuid` columns). Sync pushes tables in an arbitrary order, so a real FK would reject a child pushed before its parent. The models carry the raw parent id as the source of truth so an unresolved SwiftData relationship never pushes a null parent.
 - Tombstones are retained locally forever once written, flipped from `pushed == false` to `pushed == true` rather than deleted. A `DeletedRecord` is an id, a table name, a date, a flag and an optional filename, so a thousand deletes is a few tens of kilobytes.
 - `PersistenceController` on the branch already has `makeContainerWithRecovery(url:) -> (container: ModelContainer, recovered: Bool)` (non-throwing, tuple), `destroy(url:)`, `storeURL`, private `sidecars(of:)` and `makeContainer(inMemory:url:)`. This plan uses those exact shapes and adds only `storeURLs` and `destroyIncludingRecoveredCopies(url:)`.
 
+**PostgREST bulk upsert key uniformity**
+
+- PostgREST rejects a bulk insert or upsert whose objects do not all carry the same set of keys, with `PGRST102` ("All object keys must match"). Source: https://docs.postgrest.org/en/v12/references/errors.html
+- Swift's synthesized `Codable` encodes an `Optional` property with `encodeIfPresent`, so a nil is omitted rather than sent as JSON null. Left alone, that makes every real push a lottery: one batch mixes a tombstone (`deleted_at` set, `animal_id` nil) with an ordinary row (`deleted_at` nil, `animal_id` set), the two objects have different key sets, and PostgREST refuses the whole batch. `InMemoryRemoteStore` never sees JSON, so it would stay green while every request against the real server failed.
+- Therefore **every row struct in Task 8 writes an explicit `encode(to:)`** that emits every column key on every row, with nil encoded as JSON null, and never emits `server_updated_at`. `encode(_:forKey:)` on an `Optional` calls `encodeNil()`, which is the JSON null; `encodeIfPresent` is not used anywhere in `SyncRows.swift`. The decoder side stays synthesized, so a pull that carries `server_updated_at` still decodes it and a column the server omits still decodes to nil.
+- Because `deleted_at` is now always sent, and is sent as null on an ordinary edit, the server-side guard is what keeps a delete permanent: `sync_row_guard()` does `new.deleted_at := coalesce(old.deleted_at, new.deleted_at)`, so a null from a device that had not heard about the delete cannot clear it. The device-side equivalent is the retained tombstone. Neither side relies on a key being absent.
+- `server_updated_at` is never emitted, so the column stays entirely the trigger's, and a push can never argue with it.
+
+**Tombstones versus local edits** (ruled behaviour)
+
+- Last-write-wins is evaluated per side, and the two sides can legitimately disagree. When a local edit is newer than a remote tombstone, the tombstone loses locally: the row stays on this phone, its audio file is kept, and no local tombstone is written. The server keeps its tombstone, because `deleted_at` is sticky there. The next push sends the edit, the guard keeps `deleted_at`, and the row is on the server as a tombstone carrying the newer `updated_at`. The next pull then brings that tombstone back with a timestamp that now wins, and the row goes locally too. The divergence is one sync cycle long and it always converges on "deleted", which is the safe direction: an undelete is a decision a person makes, not one a race makes.
+- A pulled `Animal` tombstone cascades locally. `SwiftDataLocalStore.apply(animals:)` deletes that animal's recordings and their vocalizations, deletes the recordings' audio files, and writes a pulled tombstone for each of those rows. Without the cascade the recordings would survive as orphans carrying a live `animalID` that resolves to nothing, and their audio files would never be reclaimed. The cascade's tombstones are marked pushed, so they are never sent back and cannot resurrect anything; the server's own per-row tombstones arrive on this or a later pull and find the work already done.
+
+**SwiftData inverse relationships**
+
+- `VoiceRecording.vocalizations` declares `inverse: \Vocalization.recordingLink`, so SwiftData can write `recordingLink` directly when a vocalization is attached from the parent side, without going through the computed `recording` door that also writes `recordingID`. `changedVocalizations(after:)` therefore pushes `recordingID ?? recordingLink?.id`, so a row whose raw id was set behind the door still names its parent. `VoiceRecording.animalID` needs no such fallback: `Animal` declares no recordings relationship, so nothing can write `animalLink` except the `animal` door.
+
+**Pull cursor resume** (verification defect B-D10)
+
+- The stored `(server_updated_at, offset)` pair is not safe as a cross-cycle resume point on its own. If a row inside the cursor's timestamp bucket is updated between two cycles, the trigger moves it to a newer `server_updated_at`, it leaves the bucket, every later row in the bucket shifts down one place, and an offset that was right last cycle now skips a row that was never seen.
+- So every cycle restarts each table at `offset = 0` against the stored cursor and dedupes by id within the bucket. Re-reading the bucket costs at most one extra page per table per cycle, and a row that is applied twice is a no-op: `apply` merges on `id` and last-write-wins refuses a remote row that is not strictly newer than the local one. The persisted offset is still written, because it is what a cycle interrupted mid-bucket reports and what Settings and the tests read, but it is never used as a starting offset.
+
 ---
 
-## Changes since v1
+## Changes since v1 and v2
 
-Every numbered finding in `.superpowers/sdd/planH-review-findings.md` maps to the task and step that resolves it. What the reviewers judged correct is kept: the nonce implementation (64-character alphabet, SHA-256, hash to Apple and raw to Supabase), full RLS verb coverage, the private bucket, the `LocalStore`/`RemoteStore` split, and secret hygiene.
+Two tables. The first maps the twenty-two findings in `.superpowers/sdd/planH-review-findings.md`, which v2 answered. The second maps the twenty-nine defects two independent verifiers raised against v2, in `.superpowers/sdd/planH-v2-verification.md`. What the reviewers judged correct is kept: the nonce implementation (64-character alphabet, SHA-256, hash to Apple and raw to Supabase), full RLS verb coverage, the private bucket, the `LocalStore`/`RemoteStore` split, secret hygiene, the supabase-swift v2.55.2 API names, the pagination arithmetic, the generation guard, and the UUID v5 derivation.
+
+### v1 findings
 
 | Finding | Resolved in |
 | --- | --- |
-| 1. Re-baseline on the real `PersistenceController`; wipe `.corrupt-*` copies; Plan B names verified against Plan B's text | Task 5 Step 3 (`storeURLs`, `destroyIncludingRecoveredCopies`, tuple `makeContainerWithRecovery`), Task 7 Steps 3 to 6 (Plan B model and seed names) |
+| 1. Re-baseline on the real `PersistenceController`; wipe `.corrupt-*` copies; Plan B names verified against Plan B's text | Task 5 Step 3 (`storeURLs`, `destroyIncludingRecoveredCopies`, tuple `makeContainerWithRecovery`), Task 7 Steps 3 to 6 (Plan B model and seed names). Both verifiers marked this PARTIAL against v2; every anchor was re-derived from the tree at `090cdc4` for v3, and the anchors in files Plan B Task 18 creates are quoted from Plan B's own text (see Global Constraints) |
 | 2. `ContainerResetTests` uses a temporary `url:` | Task 5 Step 1 |
 | 3. Anon key committed; skip-worktree removed; guard greps for `sb_secret_`, `service_role`, `SUPABASE_ACCESS_TOKEN` and the DB password pattern, not `eyJ` | Task 1 Steps 4 to 6, Task 12 Step 7 |
 | 4. Fail closed in Release with a `.misconfigured` blocking screen plus a Release-only build phase | Task 1 Step 3 (the `postCompileScripts` guard), Task 2 Step 5 (proving it fires), Task 4 Steps 3 and 4 (`.misconfigured`, `restoreSession`), Task 5 Step 5 (`RootGate.blocked`, `MisconfiguredView`) |
@@ -124,9 +162,48 @@ Every numbered finding in `.superpowers/sdd/planH-review-findings.md` maps to th
 | 17. `SyncState` saves guarded by the generation token; status sanitized to a category | Task 3 Step 4 (`SyncStatus`), Task 11 Step 5 |
 | 18. Seven new engine tests (older tombstone loses, no resurrection, per-table tombstone survival, capped pagination, stale generation, missing parent, clock-skew clamp) | Task 10 Step 1, plus Task 11 Step 1 for the stale-generation save guard |
 | 19. Outbox replaced by watermarks plus tombstones, with the property mapping | Assumptions, "Sync model" |
-| 20. Deterministic built-in tag ids; the reset re-seeds unconditionally; reset and pull tests | Task 7 Step 6 (`UUID.v5`, `builtInID`, id-matching seed), Task 5 Step 4 (`wipeStore` seeds past the once-per-install guard), Task 5 Step 1 and Task 7 Step 1 (the tests) |
+| 20. Deterministic built-in tag ids; the reset re-seeds unconditionally; reset and pull tests | Satisfied by the tree: Plan B's fix wave (`595412f`, `a9de821`) shipped `VoiceTagSeed.builtInID`, an id-and-name-matching `seedIfNeeded`, and a `run(_:)` with no UserDefaults guard. Task 7 Step 6 verifies that instead of rewriting it, Task 5 Step 4 just calls `Seeds.runAll`, and the one case Plan B could not cover, a pulled row merging onto the seeded row, is Task 9 Step 1 |
 | 21. psql check that a pushed `updated_at` matches the device value to sub-second precision; no key on a `PlistBuddy` command line | Task 12 Step 5 (psql plus the SQLite comparison against the device store), Task 1 Step 4 (the key goes in through a heredoc, never on a command line) |
 | 22. Assumptions record session storage and accessibility, sign-out scope, pagination limit, clock-skew handling and the nonce fallback policy | Assumptions |
+
+### v2 verification defects
+
+Verifier B (auth, ownership, engine, SQL, gating):
+
+| Defect | Resolved in |
+| --- | --- |
+| B-D1 CRITICAL. PostgREST `PGRST102`: bulk upsert needs identical key sets, synthesized `Codable` omits nil optionals, and `SyncRowTests.testNilServerCursorAndNilDeletedAtAreOmittedFromAPush` locked the bug in | Task 8 Step 3 (an explicit `encode(to:)` on all four row structs, every column key, nil as JSON null, `server_updated_at` never emitted), Task 8 Step 1 (that test replaced by `testEveryRowInAMixedBatchEncodesTheSameKeySet`), Assumptions "PostgREST bulk upsert key uniformity" |
+| B-D2 / A-D6 HIGH. `PredictionService.swift` also uses `$0.animal?.id == animalID` (line 31 after Plan B's fix wave, 19 at the v2 baseline) | Task 7 Step 3 (both `#Predicate` sites plus `InsightsModel.swift`, which Plan B Task 18 creates with the same predicate) |
+| B-D3 HIGH. `storeIsEmpty()` failed open (`?? true`), and the attach relied on SwiftUI task ordering between two views | Task 4 Step 4 (`?? false`), Task 5 Step 5 (`RootView.task` attaches lifecycle and sync immediately before `restoreSession()`), Task 5 Step 7 (the App-level `.task` no longer touches `auth.lifecycle`), Task 4 Step 1 (`testAServiceWithNoLifecycleFailsClosedAndResetsTheStore`) |
+| B-D4 / A-D2..A-D5 HIGH. Four stale view anchors: `TagSheet.addTag`, `TagSheet.save`, `RecordingDetailView` delete dialog, `RecordView.finish` | Task 11 Step 9, every block re-derived from the tree at `090cdc4`: the `if let existing ... else` form, the draft write-back at lines 116 to 120, dismiss-before-delete with the tombstone taken before the captures, and `inserted = recording` kept |
+| B-D5 / A-D11 HIGH. Plan B Task 18 must land first | Global Constraints, with a `ls`/`grep` precondition check |
+| B-D6 MEDIUM. `MigrationFileTests` counts inflated by comment text | Task 6 Step 1 (`migrationSQL()` drops every `--` comment line; 21 and 25 re-derived from the stripped SQL and confirmed against the file, plus `testTheHelperDropsCommentLines`) |
+| B-D7 / A-D7 MEDIUM. Wrong epoch for 2026-09-19T12:00:00Z | Task 3 Step 1 (`1_789_819_200`, and `1_789_819_200.125` for the fractional case) |
+| B-D8 / A-D9 MEDIUM. `AnalysisService.apply` deletes vocalizations without tombstones; the audit greps were too narrow | Task 11 Step 9 (tombstones plus `updatedAt` in `AnalysisService`), Task 11 Step 11 (greps widened to all of `App/` except `App/Sync`), Task 11 file map |
+| B-D9 MEDIUM. `deleteAccount()` swallowed the sign-out failure | Task 4 Step 4 (an explicit `storageKey`, the session item removed by key, `currentSession` asserted nil before `.signedOut`) |
+| B-D10 LOW. The `(server_updated_at, offset)` cursor can over-skip | Task 10 Step 3 (every cycle restarts the bucket at offset 0 and dedupes by id), Task 10 Step 1 (`testARowUpdatedBetweenCyclesDoesNotMakeThePullSkipItsNeighbour`), Assumptions "Pull cursor resume" |
+| B-D11 LOW. Settings "Sign in" wiped the store for `.signedOut`, `.unknown` and `.misconfigured` | Task 5 Step 8 (those three states render text, never a wipe; only `.offline` offers the confirmed discard) |
+| B-D12 LOW. SwiftData's inverse can set `recordingLink` without `recordingID` | Task 9 Step 4 (`recordingID ?? recordingLink?.id`), Assumptions "SwiftData inverse relationships" |
+| B doc gap. A local edit beating a remote tombstone | Assumptions "Tombstones versus local edits" |
+
+Verifier A (compile-level anchors, SQL, tests):
+
+| Defect | Resolved in |
+| --- | --- |
+| A-D1 HIGH. Task 7 Step 3 anchored on `var id: UUID = UUID()` for three models that already have `@Attribute(.unique) id` and `updatedAt` | Task 7 Step 3, rewritten: only `Animal` gains `updatedAt`; `VoiceRecording` gains `audioUploadedAt`, `animalID`, `animalLink`; `Vocalization` gains `recordingID`, `recordingLink`; `VoiceTag` is untouched and drops out of the file list and the commit |
+| A-D2 / A-D3 / A-D4 / A-D5 HIGH. The same four stale view anchors | Task 11 Step 9 (see B-D4) |
+| A-D6 HIGH. `PredictionService.swift` predicate | Task 7 Step 3 (see B-D2) |
+| A-D7 HIGH. Epoch constants | Task 3 Step 1 (see B-D7) |
+| A-D8 HIGH. `RootGateTests.testEveryStateIsCovered` asserted 4 screens | Task 5 Step 1 (5, with the five screens named so a miscount is readable) |
+| A-D9 MEDIUM-HIGH. Re-analysis tombstones; `AnalysisService.swift` missing from the Task 11 file map | Task 11 file map and Step 9 (see B-D8) |
+| A-D10 MEDIUM. `AskView.swift:49-51` correction callback | Task 11 Step 9 (stamps `updatedAt`, then `requestSync()`) |
+| A-D11. Plan B Task 18 gate | Global Constraints (see B-D5) |
+| A-D12 LOW. Row round-trip tests compared `Date`s exactly | Task 8 Step 1 (struct-equality round trips use whole-second moments; the millisecond behaviour is asserted separately with `accuracy`) |
+| A-D13 LOW. `testAnUnconfiguredServiceNeverSignsAnyoneIn` could not fail | Task 4 Step 1, replaced by `testAnUnconfiguredServiceRefusesToDeleteAnAccount`, which drives a code path and asserts the lifecycle is untouched |
+| A-D14 LOW. `testASeededTagAndAPulledTagWithTheSameIdAreOneRow` exercised no pull code | Moved out of Task 7 into Task 9 Step 1 as `testAPulledBuiltInTagMergesOntoTheSeededRow`, which calls `SwiftDataLocalStore.apply(tags:)` with a `VoiceTagRow` carrying `VoiceTagSeed.builtInID(...)` |
+| A-D15 LOW. `SyncService` left `status == .syncing` after a cancel | Task 11 Step 5 (`cancelSync()` resets a `.syncing` status to `.cancelled`), Task 11 Step 1 (`testCancellingASyncLeavesAReadableStatus`) |
+| A-D16 LOW. The Release guard check could be preempted by provisioning | Task 2 Step 5 (`CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`) |
+| A-D17 INFO. A pulled `Animal` tombstone orphaned its recordings | Task 9 Step 4 (`cascadeDelete`), Task 9 Step 1 (`testAPulledAnimalTombstoneTakesItsRecordingsAndAudioWithIt`), Assumptions "Tombstones versus local edits" |
 
 ---
 
@@ -147,7 +224,6 @@ Every numbered finding in `.superpowers/sdd/planH-review-findings.md` maps to th
 - `App/Sync/SyncState.swift`: `SyncTable`, `ServerFunctions`, `SyncStatus`, `SyncCancelled`, `SyncClock`, `SyncState`, `StoreOwner`, `StoreOwnerPolicy` (all UserDefaults-backed where persisted).
 - `App/Sync/SyncCoding.swift`: the ISO 8601 encoder and decoder the client itself uses.
 - `App/Sync/SecretPatterns.swift`: the Swift twin of the pre-push secret guard.
-- `App/Support/UUIDv5.swift`: `UUID.v5(namespace:name:)` for the deterministic built-in tag ids.
 - `App/Sync/SyncRows.swift`: `SyncCoding`, `RemoteAudioPath`, the four row structs.
 - `App/Sync/RemoteStore.swift`: the `RemoteStore` protocol and `InMemoryRemoteStore`.
 - `App/Sync/SupabaseRemoteStore.swift`: the PostgREST and Storage implementation.
@@ -165,13 +241,16 @@ Every numbered finding in `.superpowers/sdd/planH-review-findings.md` maps to th
 
 **Modified:**
 - `project.yml`: package, product dependency, entitlements, `DEVELOPMENT_TEAM`, plist resource, Release config guard, migration resource in the test target.
-- `App/AnimalTrackerApp.swift`: auth object, replaceable container, store lifecycle, scene-phase sync.
-- `App/Persistence/PersistenceController.swift`: `DeletedRecord` plus the voice models in `modelTypes`; `storeURLs`; `destroyIncludingRecoveredCopies(url:)`.
-- `App/Persistence/VoiceTagSeed.swift`: deterministic built-in ids, upsert by id, `updatedAt` stamping.
-- `App/Models/Animal.swift`, `App/Models/VoiceRecording.swift`, `App/Models/Vocalization.swift`, `App/Models/VoiceTag.swift`: `@Attribute(.unique)` on `id`, `updatedAt`, raw parent ids, `audioUploadedAt` on `VoiceRecording`.
+- `App/AnimalTrackerApp.swift`: auth object, replaceable container, and the one scene-phase handler. All auth wiring lives in `RootView`'s `.task`, next to the `restoreSession()` it has to precede.
+- `App/Persistence/PersistenceController.swift`: `DeletedRecord` added to `modelTypes`; `storeURLs`; `destroyIncludingRecoveredCopies(url:)`.
+- `App/Models/Animal.swift`: `updatedAt`. `App/Models/VoiceRecording.swift`: `updatedAt` is already there; adds `audioUploadedAt`, `animalID`, `animalLink` and the computed `animal` door. `App/Models/Vocalization.swift`: adds `recordingID`, `recordingLink` and the computed `recording` door. `App/Models/VoiceTag.swift` is **not** modified; it already has everything this plan needs.
+- `App/Persistence/AnimalDeletionPolicy.swift`, `App/Voice/PredictionService.swift`, `App/Voice/InsightsModel.swift`: the three `#Predicate`s that reach `animal?.id` move to the raw `animalID`.
+- `App/Voice/AnalysisService.swift`: re-analysis writes tombstones for the vocalizations it deletes, and stamps `updatedAt` on the recording it rewrites.
+- `App/Voice/RecordingDeleter.swift`: writes the recording's and its sounds' tombstones before the row goes, capturing the audio filename.
+- `App/Voice/VoiceTagRenamer.swift`: stamps `updatedAt` on the tag and on every recording and sound whose label it migrates.
 - `App/Media/MediaStore.swift`, `App/Media/FileMediaStore.swift`: `write(_:as:)`.
 - `App/Views/Settings/SettingsView.swift`: Account section with sign out, sync status and account deletion.
-- `App/Views/Animals/AnimalFormView.swift`, `App/Views/Animals/ManageAnimalsView.swift`, `App/Views/Voice/RecordView.swift`, `App/Views/Voice/TagSheet.swift`, `App/Views/Voice/VoiceHistoryView.swift`, `App/Views/Voice/RecordingDetailView.swift`, `App/Views/Voice/VocalizationEditView.swift`, `App/Views/Voice/AskView.swift`, `App/Views/Voice/ManageVoiceTagsView.swift`: stamp `updatedAt`, write tombstones, request a sync.
+- `App/Views/Animals/AnimalFormView.swift`, `App/Views/Animals/ManageAnimalsView.swift`, `App/Views/Voice/RecordView.swift`, `App/Views/Voice/TagSheet.swift`, `App/Views/Voice/RecordingDetailView.swift`, `App/Views/Voice/VocalizationEditView.swift`, `App/Views/Voice/AskView.swift`, `App/Views/Voice/ManageVoiceTagsView.swift`: stamp `updatedAt`, write tombstones, request a sync. `App/Views/Voice/VoiceHistoryView.swift` needs no change: its delete already routes through `RecordingDeleter`.
 
 **New tests:**
 - `AppTests/SupabasePackageLinkTests.swift`, `AppTests/SupabaseConfigTests.swift`, `AppTests/NonceTests.swift`, `AppTests/SyncStateTests.swift`, `AppTests/KeychainSessionStorageTests.swift`, `AppTests/AuthServiceTests.swift`, `AppTests/RootGateTests.swift`, `AppTests/ContainerResetTests.swift`, `AppTests/MigrationFileTests.swift`, `AppTests/SyncFieldTests.swift`, `AppTests/SyncRowTests.swift`, `AppTests/LocalStoreTests.swift`, `AppTests/SyncEngineTests.swift`, `AppTests/SyncServiceTests.swift`, `AppTests/MediaResolverTests.swift`, `AppTests/SyncCodingTests.swift`, `AppTests/SecretGuardTests.swift`.
@@ -279,7 +358,7 @@ packages:
     path: Packages/AnimalVoiceStats
   Supabase:
     url: https://github.com/supabase/supabase-swift
-    from: 2.55.0
+    from: 2.55.2
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -472,7 +551,7 @@ xcodegen generate
 xcodebuild -project AnimalTracker.xcodeproj -scheme AnimalTracker -resolvePackageDependencies 2>&1 | tail -5
 scripts/check-secrets.sh
 ```
-Expected: resolution succeeds and prints a `supabase-swift` version of the form `2.55.y`. Record the resolved version; Task 12 quotes it in the commit body for the final push. `scripts/check-secrets.sh` prints `check-secrets: clean`.
+Expected: resolution succeeds and prints a `supabase-swift` version of `2.55.2` or a later `2.55.y`. Record the resolved version; Task 12 quotes it in the commit body for the final push. `scripts/check-secrets.sh` prints `check-secrets: clean`.
 
 - [ ] **Step 7: Run the tests to verify they pass, and verify the simulator build still signs**
 
@@ -672,20 +751,33 @@ Correction if `testLoadFromTheAppBundleSucceeds` fails: the plist still holds th
 
 This checks the `postCompileScripts` guard from Task 1 Step 3 actually fires, rather than assuming it does. Put the placeholder back, build Release, see it fail, then restore.
 
+`CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` matter: a `generic/platform=iOS` Release build otherwise needs a distribution profile, and a missing-profile error would fail the build *before* the compile phases run. The build would fail either way and the grep would print `0`, which reads exactly like a guard that is not wired. Turning signing off makes the guard the only thing that can fail this build.
+
 ```bash
 cd /Users/asheslab/Documents/work/cat-voice
 cp App/Config/Supabase.plist /tmp/Supabase.plist.real
 /usr/libexec/PlistBuddy -c "Set :SupabaseAnonKey REPLACE_WITH_ANON_KEY" App/Config/Supabase.plist
 xcodebuild -project AnimalTracker.xcodeproj -scheme AnimalTracker -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath build/ReleaseGuardCheck \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   build 2>&1 | grep -c "error: Release build with no Supabase anon key"
 ```
 Expected: the grep prints `1` or more, and the build fails. A `0` means the guard is not wired; re-check the `postCompileScripts` block.
 
-Restore immediately:
+Then prove the same build succeeds with the real key, so the guard is the thing that made it fail and not something else:
 ```bash
 cp /tmp/Supabase.plist.real App/Config/Supabase.plist
-rm /tmp/Supabase.plist.real
+xcodebuild -project AnimalTracker.xcodeproj -scheme AnimalTracker -configuration Release \
+  -destination 'generic/platform=iOS' -derivedDataPath build/ReleaseGuardCheck \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  build 2>&1 | tail -3
+```
+Expected: `** BUILD SUCCEEDED **`.
+
+Then clean up and confirm the working tree is back where it started:
+```bash
+rm -f /tmp/Supabase.plist.real
+rm -rf build/ReleaseGuardCheck
 git diff --stat App/Config/Supabase.plist
 ```
 Expected: `git diff --stat` prints nothing for that path, meaning the real key is back exactly as committed.
@@ -1044,13 +1136,15 @@ final class SyncCodingTests: XCTestCase {
 
     /// Postgres omits the fractional part when it is zero, and renders the zone as +00:00 rather
     /// than Z, so the decoder has to take all three shapes.
+    /// 1_789_819_200 is 2026-09-19T12:00:00Z. Computed, not guessed:
+    /// `python3 -c "import datetime;print(int(datetime.datetime(2026,9,19,12,0,tzinfo=datetime.timezone.utc).timestamp()))"`
     func testDecoderAcceptsTimestampsWithoutFractionalSecondsAndWithAnOffsetZone() throws {
         XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00Z")).timeIntervalSince1970,
-                       1_789_128_000, accuracy: 0.001)
+                       1_789_819_200, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00+00:00")).timeIntervalSince1970,
-                       1_789_128_000, accuracy: 0.001)
+                       1_789_819_200, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00.125+00:00")).timeIntervalSince1970,
-                       1_789_128_000.125, accuracy: 0.001)
+                       1_789_819_200.125, accuracy: 0.001)
     }
 
     func testDecoderRejectsSomethingThatIsNotADate() {
@@ -1071,8 +1165,11 @@ final class SyncCodingTests: XCTestCase {
     }
 
     /// Swift's synthesized Codable uses encodeIfPresent for optionals, so a nil is omitted rather
-    /// than sent as JSON null. Every row struct in Task 8 depends on that.
-    func testNilOptionalsAreOmittedRatherThanSentAsNull() throws {
+    /// than sent as JSON null. Pinned here because it is the reason none of Task 8's row structs
+    /// use the synthesized encoder: PostgREST refuses a bulk upsert whose objects do not all carry
+    /// the same keys (PGRST102), and omitted nils make the key set depend on the row's contents.
+    /// Task 8's rows write an explicit `encode(to:)` instead; `SyncRowTests` asserts that.
+    func testSynthesizedCodableOmitsNilWhichIsWhyRowsEncodeExplicitly() throws {
         let data = try SyncCoding.encoder.encode(Sample(when: moment, maybe: nil))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertFalse(json.keys.contains("maybe"))
@@ -1529,7 +1626,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `enum AuthState: Equatable { case unknown, signedOut, signedIn(userID: UUID, email: String?), offline, misconfigured }`.
   - `enum AuthError: Error, LocalizedError { case notConfigured, missingIdentityToken, nonceUnavailable, nonceMismatch, signOutRefused, sessionStillPresent }`.
   - `@MainActor protocol StoreLifecycle: AnyObject { func cancelSync() async; func storeIsEmpty() -> Bool; func wipeStore() async; func configureSync(for state: AuthState, client: SupabaseClient?) }`.
-  - `@MainActor final class AuthService: ObservableObject` with `init(config: SupabaseConfig? = SupabaseConfig.load(), defaults: UserDefaults = .standard, isRelease: Bool = AuthService.isReleaseBuild)`, `let client: SupabaseClient?`, `var isConfigured: Bool`, `static var isReleaseBuild: Bool`, `static let appleUserIDKey`, `weak var lifecycle: (any StoreLifecycle)?`, `@Published private(set) var state: AuthState`, `@Published private(set) var isWorking: Bool`, `@Published var message: String?`, `func restoreSession() async`, `func beginSignIn() throws -> String`, `func abortSignIn(message: String)`, `func signInWithApple(authorization: ASAuthorization) async throws`, `func signOut() async`, `func deleteAccount() async throws`, `func leaveOfflineMode() async`, `func startWatchingAppleCredential()`, `func checkAppleCredentialState() async`, `func establish(userID: UUID, email: String?) async`, `static func isNonceMismatch(_ error: any Error) -> Bool`, and under `#if DEBUG` `func continueOffline()`.
+  - `@MainActor final class AuthService: ObservableObject` with `init(config: SupabaseConfig? = SupabaseConfig.load(), defaults: UserDefaults = .standard, isRelease: Bool = AuthService.isReleaseBuild)`, `let client: SupabaseClient?`, `var isConfigured: Bool`, `static var isReleaseBuild: Bool`, `static let appleUserIDKey`, `static let sessionStorageKey`, `weak var lifecycle: (any StoreLifecycle)?`, `@Published private(set) var state: AuthState`, `@Published private(set) var isWorking: Bool`, `@Published var message: String?`, `func restoreSession() async`, `func beginSignIn() throws -> String`, `func abortSignIn(message: String)`, `func signInWithApple(authorization: ASAuthorization) async throws`, `func signOut() async`, `func deleteAccount() async throws`, `func leaveOfflineMode() async`, `func startWatchingAppleCredential()`, `func checkAppleCredentialState() async`, `func establish(userID: UUID, email: String?) async`, `static func isNonceMismatch(_ error: any Error) -> Bool`, and under `#if DEBUG` `func continueOffline()`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1666,6 +1763,41 @@ final class AuthServiceTests: XCTestCase {
         XCTAssertEqual(SyncState.load(defaults: defaults).pullOffset(.animals), 0)
     }
 
+    /// Fail closed. With no lifecycle attached there is no way to ask whether the store is empty,
+    /// and "I do not know" must mean "assume it holds someone's records", so an unowned store is
+    /// reset rather than adopted. The v2 code defaulted the other way.
+    func testAServiceWithNoLifecycleFailsClosedAndResetsTheStore() async {
+        StoreOwner.clear(defaults: defaults)
+        var state = SyncState()
+        state.setPullCursor(.animals, Date(timeIntervalSince1970: 900), offset: 3)
+        state.save(defaults: defaults)
+
+        let auth = AuthService(config: nil, defaults: defaults, isRelease: false)
+        XCTAssertNil(auth.lifecycle)
+        await auth.establish(userID: userA, email: nil)
+
+        // `reset` calls SyncState.clear, which removes the blob. `claimEmpty` would call
+        // forgetSyncHistory and save, leaving a blob behind. That is the only observable difference
+        // between the two branches when no lifecycle is attached, so it is what this asserts.
+        XCTAssertNil(defaults.data(forKey: SyncState.defaultsKey),
+                     "an unknown store must take the reset branch, not claimEmpty")
+        XCTAssertEqual(StoreOwner.load(defaults: defaults).userID, userA.uuidString.lowercased())
+    }
+
+    /// The same decision with a lifecycle that says the store is empty goes the other way, so the
+    /// assertion above is about the missing lifecycle and not about `StoreOwnerPolicy`.
+    func testAnEmptyStoreWithALifecycleStillTakesTheClaimBranch() async {
+        StoreOwner.clear(defaults: defaults)
+        lifecycle.isEmpty = true
+        SyncState().save(defaults: defaults)
+
+        let auth = makeService()
+        await auth.establish(userID: userA, email: nil)
+
+        XCTAssertNotNil(defaults.data(forKey: SyncState.defaultsKey))
+        XCTAssertFalse(lifecycle.events.contains(.wipeStore))
+    }
+
     /// Ownership is recorded the moment the session is established, before anything syncs.
     func testOwnershipIsRecordedBeforeSyncIsConfigured() async {
         let auth = makeService()
@@ -1738,9 +1870,22 @@ final class AuthServiceTests: XCTestCase {
         XCTAssertEqual(auth.state, .unknown)
     }
 
-    func testAnUnconfiguredServiceNeverSignsAnyoneIn() {
+    /// v2 had a `testAnUnconfiguredServiceNeverSignsAnyoneIn` here that asserted exactly what
+    /// `testUnconfiguredServiceHasNoClient` already asserts, so it could not fail. This one drives
+    /// a code path: the destructive operation refuses without a client, and refuses *before*
+    /// touching the store, so a misconfigured build cannot wipe a person's records.
+    func testAnUnconfiguredServiceRefusesToDeleteAnAccount() async {
         let auth = makeService()
-        XCTAssertFalse(auth.isConfigured)
+        do {
+            try await auth.deleteAccount()
+            XCTFail("expected AuthError.notConfigured")
+        } catch AuthError.notConfigured {
+            // expected
+        } catch {
+            XCTFail("expected AuthError.notConfigured, got \(error)")
+        }
+        XCTAssertEqual(lifecycle.events, [], "nothing may be cancelled or wiped without a client")
+        XCTAssertFalse(auth.isWorking)
         XCTAssertEqual(auth.state, .unknown)
     }
 
@@ -1846,6 +1991,11 @@ final class AuthService: ObservableObject {
 
     static let appleUserIDKey = "animalTracker.appleUserID"
 
+    /// The keychain account the Supabase session occupies. Passed to the SDK as
+    /// `AuthOptions.storageKey`, so this app knows the exact item rather than depending on the
+    /// SDK's internal `defaultStorageKey`. `deleteAccount()` removes this item by name.
+    static let sessionStorageKey = "animalTracker.session"
+
     /// True in a build without DEBUG. Injectable so the fail-closed behaviour is testable.
     static var isReleaseBuild: Bool {
         #if DEBUG
@@ -1861,6 +2011,9 @@ final class AuthService: ObservableObject {
 
     private let defaults: UserDefaults
     private let isRelease: Bool
+    /// The same storage the client was built with, so `deleteAccount()` can remove the session
+    /// item itself rather than trusting `signOut` to have done it.
+    private let sessionStorage: KeychainSessionStorage
     /// Held between preparing the Apple request and the completion coming back. Cleared as soon as
     /// it is used, so one nonce can never serve two authorizations.
     private var pendingRawNonce: String?
@@ -1873,13 +2026,20 @@ final class AuthService: ObservableObject {
         self.defaults = defaults
         self.isRelease = isRelease
         self.nonceEncoding = NonceEncoding.load(defaults: defaults)
+        // A local first, then the property: `self` cannot be read until every stored property has
+        // a value, and `client` is assigned below.
+        let storage = KeychainSessionStorage()
+        self.sessionStorage = storage
         if let config {
             client = SupabaseClient(
                 supabaseURL: config.url,
                 supabaseKey: config.anonKey,
                 options: SupabaseClientOptions(
                     db: .init(encoder: SyncCoding.encoder, decoder: SyncCoding.decoder),
-                    auth: .init(storage: KeychainSessionStorage())
+                    // storageKey is pinned rather than left to the SDK's internal
+                    // `defaultStorageKey`, so the account deletion path can name the item it has to
+                    // remove. See Assumptions, "Package and client".
+                    auth: .init(storage: storage, storageKey: AuthService.sessionStorageKey)
                 )
             )
         } else {
@@ -1929,9 +2089,13 @@ final class AuthService: ObservableObject {
     /// without a network.
     func establish(userID: UUID, email: String?) async {
         let owner = StoreOwner.load(defaults: defaults)
+        // `?? false` is the fail-closed default. With no lifecycle attached there is no way to ask
+        // whether the store holds anything, and "unknown" has to mean "assume it holds someone's
+        // records", so an unowned store is reset rather than adopted into this account. `?? true`
+        // would silently hand the previous person's data to whoever signs in next.
         let decision = StoreOwnerPolicy.decision(ownerID: owner.userID,
                                                  newUserID: userID,
-                                                 storeIsEmpty: lifecycle?.storeIsEmpty() ?? true)
+                                                 storeIsEmpty: lifecycle?.storeIsEmpty() ?? false)
         switch decision {
         case .keep:
             break
@@ -2036,10 +2200,14 @@ final class AuthService: ObservableObject {
         lifecycle?.configureSync(for: state, client: client)
     }
 
-    /// Deletes the account server-side and then leaves the phone in a fresh-install state. The
-    /// sign-out here is best effort on purpose: once `delete_my_account()` has returned, the auth
-    /// user is gone and the refresh token is already dead, so a failing sign-out must not stop the
-    /// local wipe.
+    /// Deletes the account server-side and then leaves the phone in a fresh-install state.
+    ///
+    /// The sign-out is best effort, because once `delete_my_account()` has returned the auth user
+    /// is gone and `/logout` answers 401 or 403. What is *not* best effort is the session item:
+    /// the SDK's `signOut` returns early without throwing when it finds no access token, and
+    /// swallows 401, 403 and 404, so "it did not throw" is not evidence that the keychain is
+    /// clean. The item is removed by name and the result is checked, because leaving a dead
+    /// session behind means the next launch restores a session for a user that no longer exists.
     func deleteAccount() async throws {
         guard let client else { throw AuthError.notConfigured }
         isWorking = true
@@ -2047,6 +2215,18 @@ final class AuthService: ObservableObject {
         await lifecycle?.cancelSync()
         try await client.rpc(ServerFunctions.deleteMyAccount).execute()
         try? await client.auth.signOut(scope: .local)
+        do {
+            try sessionStorage.remove(key: AuthService.sessionStorageKey)
+        } catch {
+            // Nothing can be done about a keychain that refuses a delete, but the person must not
+            // be told the account is gone from this phone when its session is not.
+            message = AuthError.sessionStillPresent.errorDescription
+        }
+        // `currentSession` reads straight from storage with no in-memory cache, so this is a real
+        // check and not a formality.
+        if client.auth.currentSession != nil {
+            message = AuthError.sessionStillPresent.errorDescription
+        }
         await lifecycle?.wipeStore()
         SyncState.clear(defaults: defaults)
         StoreOwner.clear(defaults: defaults)
@@ -2116,7 +2296,7 @@ final class AuthService: ObservableObject {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `AuthServiceTests` thirteen cases are green, and nothing in them touches the network.
+Expected: PASS. `AuthServiceTests` eighteen cases are green, and nothing in them touches the network.
 
 Correction if `testSigningInAsTheSameUserKeepsTheStore` fails on the `configureSync` payload string: `String(describing:)` of an enum with associated values is compiler-formatted and can differ between toolchains. Replace that one assertion with a shape check:
 ```swift
@@ -2201,10 +2381,15 @@ final class RootGateTests: XCTestCase {
                        [.loading, .signIn, .main(showsOfflineBanner: false), .signIn])
     }
 
-    /// Every state maps to exactly one screen; a new state added later without a screen fails here.
-    func testEveryStateIsCovered() {
+    /// Five states, five distinct screens: loading, signIn, main(false), main(true), blocked.
+    /// Counting four, as v2 did, would let `.misconfigured` collapse onto one of the others and
+    /// still pass, which is the one collapse that must never happen.
+    func testEveryStateMapsToItsOwnScreen() {
         let all: [AuthState] = [.unknown, .signedOut, .signedIn(userID: UUID(), email: nil), .offline, .misconfigured]
-        XCTAssertEqual(Set(all.map { String(describing: RootGate.screen(for: $0)) }).count, 4)
+        let screens = all.map(RootGate.screen(for:))
+        XCTAssertEqual(screens, [.loading, .signIn, .main(showsOfflineBanner: false),
+                                 .main(showsOfflineBanner: true), .blocked])
+        XCTAssertEqual(Set(screens.map { String(describing: $0) }).count, 5)
     }
 }
 ```
@@ -2277,7 +2462,10 @@ final class ContainerResetTests: XCTestCase {
         XCTAssertEqual(lifecycle.generation, 1)
         let tags = try lifecycle.container.mainContext.fetch(FetchDescriptor<VoiceTag>())
         XCTAssertEqual(tags.count, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count,
-                       "a wiped store is re-seeded even though the UserDefaults guard is already set")
+                       "a wiped store is re-seeded, and re-seeded exactly once")
+        XCTAssertEqual(tags.first { $0.kind == .meaning && $0.name == "Hungry" }?.id,
+                       VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry"),
+                       "with the same ids as before the wipe, so a later pull merges rather than doubles")
     }
 
     /// "Empty" has to mean "no records the person made". The built-in tags are always there, so a
@@ -2404,12 +2592,11 @@ final class AppStoreLifecycle: ObservableObject, StoreLifecycle {
         let opened = PersistenceController.makeContainerWithRecovery(url: storeURL)
         container = opened.container
         generation += 1
+        // `Seeds.all` runs `VoiceTagSeed.run`, which seeds on every call: Plan B's fix wave removed
+        // the once-per-install UserDefaults guard precisely so a store recreated after a wipe still
+        // gets its built-in tags. The ids are deterministic, so a later pull of the same tags merges
+        // onto these rows instead of doubling them.
         Seeds.runAll(context: container.mainContext)
-        // `Seeds.all` runs `VoiceTagSeed.run`, which is guarded by a once-per-install UserDefaults
-        // flag that is already set by the time anyone signs out. A wiped store still needs its
-        // built-in tags, so seed again past the guard. Deterministic ids (Task 7) make this an
-        // upsert rather than a duplication.
-        _ = try? VoiceTagSeed.seedIfNeeded(context: container.mainContext)
         sync?.attach(container: container, mediaStore: mediaStore)
     }
 
@@ -2482,6 +2669,15 @@ struct RootView: View {
             }
         }
         .task {
+            // Everything the session restore depends on is wired here, in this order, one line
+            // before the restore itself. v2 set `auth.lifecycle` in the App-level `.task` and
+            // called `restoreSession()` here, betting that a parent's task body runs before its
+            // child's. SwiftUI does not promise that, and losing the bet means `restoreSession()`
+            // decides store ownership with no lifecycle: it cannot ask whether the store is empty,
+            // and it cannot cancel or wipe. There is no ordering left to get wrong if the wiring
+            // and the restore are statements in one function.
+            auth.lifecycle = store
+            auth.startWatchingAppleCredential()
             await auth.restoreSession()
         }
     }
@@ -2629,14 +2825,6 @@ struct AnimalTrackerApp: App {
                 .environmentObject(auth)
                 .environmentObject(store)
                 .modelContainer(store.container)
-                .task {
-                    // AuthService drives the store through this one connection. There is no
-                    // `.onChange(of:)` anywhere in the auth path, on purpose: SwiftUI does not
-                    // define the relative order of two change handlers, and a wipe racing a sync
-                    // is exactly the bug that ordering ambiguity produces.
-                    auth.lifecycle = store
-                    auth.startWatchingAppleCredential()
-                }
         }
     }
 }
@@ -2653,7 +2841,7 @@ enum Seeds {
 
 `Seeds.all` already contains `VoiceTagSeed.run` from Plan B Task 13. If the file on disk lists more seed closures, keep that list exactly as it is and change only the `AnimalTrackerApp` struct above it.
 
-`RootView`'s own `.task` calls `auth.restoreSession()`. It runs after this one because `RootView` is the child, and `auth.lifecycle` is assigned before the child's task body runs, which is what `restoreSession()` needs.
+There is deliberately no `.task` on the `WindowGroup` content any more. Every piece of auth wiring lives in `RootView`'s own `.task`, immediately before `restoreSession()`, so nothing depends on the order SwiftUI happens to run a parent's task body against a child's. Task 11 Step 6 adds the scene-phase handler and the sync attach to those same two places, and nowhere else.
 
 - [ ] **Step 8: Add the Account section to Settings**
 
@@ -2679,9 +2867,20 @@ Insert this section as the first section inside `Form { ... }`, immediately befo
                 case .offline:
                     Text("Offline. Records stay on this phone and are not backed up.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    // The only state that offers to leave offline mode, and only behind the
+                    // confirmation below, because leaving discards the offline records.
                     Button("Sign in") { showLeaveOfflineConfirmation = true }
-                case .signedOut, .unknown, .misconfigured:
-                    Button("Sign in") { Task { await auth.leaveOfflineMode() } }
+                case .signedOut, .unknown:
+                    // Unreachable in practice: RootGate shows the sign-in screen or the loading
+                    // screen for these, never the tabs, so Settings is not on screen. Rendered as
+                    // text rather than a button on purpose. v2 wired a "Sign in" button here to
+                    // `leaveOfflineMode()`, which wipes the store; firing that from a state that
+                    // never created offline data would destroy a signed-in person's records
+                    // between a sign-out and the next screen.
+                    Text("Not signed in.").font(.footnote).foregroundStyle(.secondary)
+                case .misconfigured:
+                    Text("This build has no Supabase key, so it cannot sign in or back anything up.")
+                        .font(.footnote).foregroundStyle(.orange)
                 }
                 if let message = auth.message {
                     Text(message).font(.footnote).foregroundStyle(.red)
@@ -2717,7 +2916,7 @@ to
 Run: `scripts/test-app.sh`
 Expected: PASS. `RootGateTests` eight cases and `ContainerResetTests` four cases are green, and every earlier test still passes.
 
-Correction if `testWipingRebuildsAnEmptyStoreThatStillHasTheBuiltInTags` reports fewer tags than expected: `wipeStore()` called only `Seeds.runAll`, whose `VoiceTagSeed.run` is blocked by the once-per-install UserDefaults flag. The unconditional `VoiceTagSeed.seedIfNeeded` line after it is what makes this pass.
+Correction if `testWipingRebuildsAnEmptyStoreThatStillHasTheBuiltInTags` reports no tags at all: `wipeStore()` is not calling `Seeds.runAll` on the new container, or `VoiceTagSeed.run` has regained a once-per-install guard. It must seed on every call.
 
 - [ ] **Step 10: See it on the simulator**
 
@@ -2765,15 +2964,40 @@ final class MigrationFileTests: XCTestCase {
     private static let tables = ["public.animals", "public.voice_recordings",
                                  "public.vocalizations", "public.voice_tags"]
 
+    /// Returns the migration with every `--` comment line removed, lowercased.
+    ///
+    /// The comments have to go before anything is counted. The file explains itself in prose that
+    /// quotes the SQL it is about, so a line like "-- ... scoped to authenticated callers, and
+    /// `(select auth.uid())` so the uid is evaluated once per statement" contributes one phantom
+    /// "to authenticated" and one phantom "(select auth.uid())". v2 counted the raw text and got
+    /// 22 and 26 where the policies actually number 21 and 25. Rewording the comment would fix
+    /// today's count and break again the next time someone explains the file; stripping the
+    /// comments fixes it once. Every count below is over SQL, never over prose.
     private func migrationSQL() throws -> String {
         let bundle = Bundle(for: MigrationFileTests.self)
         let url = try XCTUnwrap(bundle.url(forResource: "20260919120000_voice_milestone", withExtension: "sql"),
                                 "the migration is not in the test bundle; check project.yml")
-        return try String(contentsOf: url, encoding: .utf8).lowercased()
+        return try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("--") }
+            .joined(separator: "\n")
+            .lowercased()
     }
 
     private func count(_ needle: String, in sql: String) -> Int {
         sql.components(separatedBy: needle).count - 1
+    }
+
+    /// The helper is load-bearing for nine of the counts below, so it gets its own test rather
+    /// than being trusted.
+    func testTheHelperDropsCommentLines() throws {
+        let sql = try migrationSQL()
+        XCTAssertFalse(sql.contains("--"), "no comment line survived the strip")
+        XCTAssertTrue(sql.contains("create table if not exists public.animals"), "the SQL itself survived")
+        let raw = try String(contentsOf: XCTUnwrap(Bundle(for: MigrationFileTests.self)
+            .url(forResource: "20260919120000_voice_milestone", withExtension: "sql")), encoding: .utf8).lowercased()
+        XCTAssertGreaterThan(count("to authenticated", in: raw), count("to authenticated", in: sql),
+                             "the comments really do quote the SQL; that is why they are stripped")
     }
 
     // MARK: tables and columns
@@ -3212,9 +3436,19 @@ cd /Users/asheslab/Documents/work/cat-voice
 xcodegen generate
 scripts/test-app.sh
 ```
-Expected: PASS. `MigrationFileTests` fourteen cases are green.
+Expected: PASS. `MigrationFileTests` fifteen cases are green.
 
-Correction if a count assertion is off by one or two: the counts in the test are the contract, not an approximation. Recount the policies in the file rather than relaxing the test; an unexpected extra `create policy` is a duplicate, and a missing one is a hole in RLS.
+Every count in the test was re-derived from the migration text above with the comment lines removed, not carried over from a previous revision. To re-derive them at any point:
+```bash
+cd /Users/asheslab/Documents/work/cat-voice
+grep -v '^[[:space:]]*--' supabase/migrations/20260919120000_voice_milestone.sql | tr 'A-Z' 'a-z' > /tmp/mig-nocomments.sql
+for needle in 'create policy' 'to authenticated' '(select auth.uid())' 'with check' 'on storage.objects for'; do
+  printf '%s\t%s\n' "$(grep -o "$needle" /tmp/mig-nocomments.sql | wc -l | tr -d ' ')" "$needle"
+done
+```
+Expected: `20 create policy`, `21 to authenticated`, `25 (select auth.uid())`, `10 with check`, `4 on storage.objects for`.
+
+Correction if a count assertion is off by one or two: the counts in the test are the contract, not an approximation. Recount with the command above rather than relaxing the test; an unexpected extra `create policy` is a duplicate, and a missing one is a hole in RLS. If a count is off by exactly the number of comment lines that mention the phrase, `migrationSQL()` is not stripping comments.
 
 - [ ] **Step 6: Apply the migration to the live project**
 
@@ -3324,27 +3558,24 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `App/Models/Animal.swift` (add `updatedAt` after line 7)
-- Modify: `App/Models/VoiceRecording.swift` (unique id, `updatedAt`, `audioUploadedAt`, `animalID`, `animalLink`)
-- Modify: `App/Models/Vocalization.swift` (unique id, `updatedAt`, `recordingID`, `recordingLink`)
-- Modify: `App/Models/VoiceTag.swift` (unique id, `updatedAt`)
+- Modify: `App/Models/VoiceRecording.swift` (add `audioUploadedAt`, `animalID`, `animalLink`; `id` and `updatedAt` are already there)
+- Modify: `App/Models/Vocalization.swift` (add `recordingID`, `recordingLink`; `id` and `updatedAt` are already there)
+- **Not** modified: `App/Models/VoiceTag.swift`. It already has `@Attribute(.unique) var id` and `updatedAt` (commit `66af968`), and this plan needs nothing else from it.
 - Create: `App/Models/DeletedRecord.swift`
-- Modify: `App/Persistence/PersistenceController.swift:9-11` (`modelTypes`)
-- Modify: `App/Persistence/AnimalDeletionPolicy.swift:11` (predicate on the raw id)
-- Modify: `App/Persistence/VoiceTagSeed.swift` (deterministic built-in ids, upsert by id)
-- Modify: `AppTests/VoiceTagSeedTests.swift` (Plan B's test, updated for id matching)
+- Modify: `App/Persistence/PersistenceController.swift:9-14` (`modelTypes`)
+- Modify: `App/Persistence/AnimalDeletionPolicy.swift:11`, `App/Voice/PredictionService.swift:31`, `App/Voice/InsightsModel.swift:69` (all three `#Predicate { $0.animal?.id == animalID }` sites move to the raw id)
 - Modify: `App/Media/MediaStore.swift`, `App/Media/FileMediaStore.swift` (`write(_:as:)`)
-- Create: `App/Support/UUIDv5.swift`
 - Create: `AppTests/SyncFieldTests.swift`
+- **Not** modified: `App/Persistence/VoiceTagSeed.swift` and `AppTests/VoiceTagSeedTests.swift`. Plan B's fix wave already gave the built-in tags stable ids through `VoiceTagSeed.builtInID(kind:name:)` and already made `run(_:)` seed on every launch with no UserDefaults guard. Finding 20 is satisfied by the tree, and Step 6 verifies that rather than rewriting it.
 
 **Interfaces:**
-- Consumes: `SyncTable` (Task 3); `Animal`, `MediaStore`, `InMemoryMediaStore`, `FileMediaStore`, `PersistenceController` (Plan A); `VoiceRecording`, `Vocalization`, `VoiceTag`, `VoiceTagSeed`, `VoiceTagKind`, `TagPropagation` (Plan B Task 13).
+- Consumes: `SyncTable` (Task 3); `Animal`, `MediaStore`, `InMemoryMediaStore`, `FileMediaStore`, `PersistenceController` (Plan A); `VoiceRecording`, `Vocalization`, `VoiceTag`, `VoiceTagSeed.builtInID`, `VoiceTagKind`, `TagPropagation` (Plan B).
 - Produces:
-  - `updatedAt: Date` on `Animal`, `VoiceRecording`, `Vocalization`, `VoiceTag`.
-  - `audioUploadedAt: Date?` and `animalID: UUID?` on `VoiceRecording`; `recordingID: UUID?` on `Vocalization`. Both models keep `animal` / `recording` as computed doors that write the raw id with the relationship.
+  - `updatedAt: Date` on `Animal` (the other three already have it).
+  - `audioUploadedAt: Date?` and `animalID: UUID?` on `VoiceRecording`; `recordingID: UUID?` on `Vocalization`. Both models keep `animal` / `recording` as computed doors that write the raw id with the relationship, over stored `animalLink` / `recordingLink`.
   - `@Model final class DeletedRecord` with `id`, `createdAt`, `entity`, `recordID`, `deletedAt`, `pushed`, `audioFilename`, and `init(entity:recordID:deletedAt:pushed:audioFilename:)`.
   - `enum Tombstone { static func record(_:id:deletedAt:audioFilename:in:) -> DeletedRecord; static func recordRecording(_:in:); static func recordPulled(_:id:deletedAt:in:) }`.
   - `MediaStore.write(_ data: Data, as filename: String) throws`.
-  - `UUID.v5(namespace:name:) -> UUID`; `VoiceTagSeed.builtInNamespace`, `VoiceTagSeed.builtInID(kind:name:) -> UUID`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3500,51 +3731,12 @@ final class SyncFieldTests: XCTestCase {
         XCTAssertTrue(registered.contains(ObjectIdentifier(VoiceRecording.self)))
     }
 
-    // MARK: deterministic built-in tag ids
-
-    func testBuiltInTagIdsAreDeterministicAndVersionFive() {
-        let first = VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry")
-        let second = VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry")
-        XCTAssertEqual(first, second, "the same kind and name must give the same id on every device")
-        XCTAssertNotEqual(first, VoiceTagSeed.builtInID(kind: .activity, name: "Hungry"))
-        XCTAssertNotEqual(first, VoiceTagSeed.builtInID(kind: .meaning, name: "Thirsty"))
-
-        // RFC 4122: version nibble 5, variant bits 10xx.
-        let bytes = withUnsafeBytes(of: first.uuid) { Array($0) }
-        XCTAssertEqual(bytes[6] >> 4, 5)
-        XCTAssertEqual(bytes[8] >> 6, 2)
-    }
-
-    func testSeedingTwiceDoesNotDuplicateAndUsesTheDeterministicIds() throws {
-        let container = try TestSupport.container()
-        let context = container.mainContext
-        let first = try VoiceTagSeed.seedIfNeeded(context: context)
-        XCTAssertEqual(first, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count)
-        XCTAssertEqual(try VoiceTagSeed.seedIfNeeded(context: context), 0)
-
-        let tags = try context.fetch(FetchDescriptor<VoiceTag>())
-        XCTAssertEqual(tags.count, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count)
-        let hungry = try XCTUnwrap(tags.first { $0.kind == .meaning && $0.name == "Hungry" })
-        XCTAssertEqual(hungry.id, VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry"))
-    }
-
-    /// The case the reset path depends on: a row pulled from the server carries the same
-    /// deterministic id, so it merges onto the seeded tag instead of doubling it.
-    func testASeededTagAndAPulledTagWithTheSameIdAreOneRow() throws {
-        let container = try TestSupport.container()
-        let context = container.mainContext
-        _ = try VoiceTagSeed.seedIfNeeded(context: context)
-        let before = try context.fetchCount(FetchDescriptor<VoiceTag>())
-
-        // What a pull does: fetch by id, and update rather than insert when it is already here.
-        let id = VoiceTagSeed.builtInID(kind: .activity, name: "Eating")
-        let existing = try context.fetch(FetchDescriptor<VoiceTag>()).first { $0.id == id }
-        XCTAssertNotNil(existing, "the seeded row is found by the id the server would send")
-        existing?.name = "Eating"
-        try context.save()
-
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), before)
-    }
+    // Built-in tag ids are Plan B's, not this plan's: `VoiceTagSeed.builtInID` already exists and
+    // `AppTests/VoiceTagSeedTests.swift` already covers its stability, the no-duplicate re-seed, the
+    // renamed built-in and the hand-made tag that shares a built-in's name. Nothing here repeats
+    // those. The one case Plan B could not cover, a *pulled* row carrying the same id merging onto
+    // the seeded one, needs `SwiftDataLocalStore` and so lives in Task 9 Step 1 as
+    // `testAPulledBuiltInTagMergesOntoTheSeededRow`.
 
     // MARK: media
 
@@ -3571,41 +3763,40 @@ final class SyncFieldTests: XCTestCase {
 Run: `scripts/test-app.sh`
 Expected: FAIL with `value of type 'Animal' has no member 'updatedAt'` and `cannot find 'Tombstone' in scope`.
 
-- [ ] **Step 3: Add `updatedAt` to the four models and raw parent ids to the two children**
+- [ ] **Step 3: Add `updatedAt` to `Animal`, raw parent ids to the two children, and move every predicate off the computed relationship**
 
-In `App/Models/Animal.swift`, insert one property after line 7 (`var createdAt: Date = Date()`). `id` already carries `@Attribute(.unique)`, so it is left alone:
+First read what is actually there, because v2 anchored on a shape these files have not had since commit `66af968`:
+```bash
+cd /Users/asheslab/Documents/work/cat-voice
+grep -n "id: UUID\|updatedAt\|var animal\|var recording\|@Relationship" App/Models/Animal.swift App/Models/VoiceRecording.swift App/Models/Vocalization.swift App/Models/VoiceTag.swift
+```
+Expected: all four already print `@Attribute(.unique) var id: UUID = UUID()`, and `VoiceRecording`, `Vocalization` and `VoiceTag` already print `var updatedAt: Date = Date()`. Only `Animal` is missing `updatedAt`. If that is not what prints, stop and re-derive the edits below against what is there.
+
+In `App/Models/Animal.swift`, insert one property after line 7 (`    var createdAt: Date = Date()`), so it lands between `createdAt` and `var name: String = ""`:
 ```swift
     /// Bumped by every mutation site; sync pushes rows newer than the last push and resolves
     /// conflicts last-write-wins on this value.
     var updatedAt: Date = Date()
 ```
+`id` already carries `@Attribute(.unique)`, and nothing else in this file changes.
 
-In `App/Models/VoiceRecording.swift`, replace:
+In `App/Models/VoiceRecording.swift`, replace lines 20 and 21:
 ```swift
-    var id: UUID = UUID()
-    var createdAt: Date = Date()
+    var editedAt: Date?
+    var animal: Animal?
 ```
 with:
 ```swift
-    @Attribute(.unique) var id: UUID = UUID()
-    var createdAt: Date = Date()
-    var updatedAt: Date = Date()
+    var editedAt: Date?
     /// When this recording's audio file reached Storage. Nil means "still to upload".
     var audioUploadedAt: Date?
     /// The parent's id, and the source of truth for it. A row pulled before its parent still knows
     /// which animal it belongs to, so a push can never send a null animal_id for an animal that
     /// exists. Written by the `animal` door below; settable on its own when a pull resolves later.
     var animalID: UUID?
-```
-
-and replace:
-```swift
-    var animal: Animal?
-```
-with:
-```swift
-    /// Stored relationship. Nothing outside this file touches it: `animal` is the door, so the raw
-    /// id is always written with it. Same shape as Plan B's `status` over `statusRaw`.
+    /// Stored relationship. Nothing outside this file and `SwiftDataLocalStore.apply` touches it:
+    /// `animal` is the door, so the raw id is always written with it. Same shape as Plan B's
+    /// `status` over `statusRaw`.
     @Relationship var animalLink: Animal?
 
     var animal: Animal? {
@@ -3617,7 +3808,7 @@ with:
     }
 ```
 
-and replace the inverse keypath on the vocalizations relationship:
+and replace line 22, the inverse keypath on the vocalizations relationship:
 ```swift
     @Relationship(deleteRule: .cascade, inverse: \Vocalization.recording) var vocalizations: [Vocalization]?
 ```
@@ -3625,34 +3816,30 @@ with:
 ```swift
     @Relationship(deleteRule: .cascade, inverse: \Vocalization.recordingLink) var vocalizations: [Vocalization]?
 ```
+A `\Vocalization.recording` keypath would now name a computed property, which SwiftData cannot use as an inverse.
 
-and in `init(audioFilename:durationS:recordedAt:animal:)`, replace `self.animal = animal` with:
+and in `init(audioFilename:durationS:recordedAt:animal:)`, replace line 28:
+```swift
+        self.animal = animal
+```
+with:
 ```swift
         self.animalLink = animal
         self.animalID = animal?.id
 ```
-(The computed setter cannot be used before every stored property has a value.)
+The computed setter cannot be used before every stored property has a value.
 
-In `App/Models/Vocalization.swift`, replace:
-```swift
-    var id: UUID = UUID()
-    var createdAt: Date = Date()
-```
-with:
-```swift
-    @Attribute(.unique) var id: UUID = UUID()
-    var createdAt: Date = Date()
-    var updatedAt: Date = Date()
-    /// The parent recording's id, and the source of truth for it. See `VoiceRecording.animalID`.
-    var recordingID: UUID?
-```
-
-and replace:
+In `App/Models/Vocalization.swift`, replace line 25:
 ```swift
     var recording: VoiceRecording?
 ```
 with:
 ```swift
+    /// The parent recording's id, and the source of truth for it. See `VoiceRecording.animalID`.
+    var recordingID: UUID?
+    /// Stored relationship. SwiftData can write this one directly when the inverse on
+    /// `VoiceRecording.vocalizations` attaches a sound from the parent side, which is why the push
+    /// side falls back to `recordingLink?.id` when `recordingID` is nil.
     @Relationship var recordingLink: VoiceRecording?
 
     var recording: VoiceRecording? {
@@ -3663,18 +3850,16 @@ with:
         }
     }
 ```
+Nothing else in this file changes; `id` is already unique and `updatedAt` is already there.
 
-In `App/Models/VoiceTag.swift`, replace:
-```swift
-    var id: UUID = UUID()
-    var createdAt: Date = Date()
+`App/Models/VoiceTag.swift` is not touched at all.
+
+Now the predicates. A `#Predicate` can only reach persisted properties, and `animal` is now computed, so every `#Predicate` that walks that relationship has to move to the raw id. The raw id is also the faster comparison. Find them first, so one added since this plan was written is not missed:
+```bash
+cd /Users/asheslab/Documents/work/cat-voice
+grep -rn "#Predicate" App/
 ```
-with:
-```swift
-    @Attribute(.unique) var id: UUID = UUID()
-    var createdAt: Date = Date()
-    var updatedAt: Date = Date()
-```
+Expected at `a9de821`: seven hits. Four are in `App/Voice/VoiceTagRenamer.swift` and compare `activityTag` or `meaningTag`, which are plain stored `String?`s, so they are left alone. The three that walk the relationship are the ones to change:
 
 In `App/Persistence/AnimalDeletionPolicy.swift`, replace line 11:
 ```swift
@@ -3684,9 +3869,32 @@ with:
 ```swift
             FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animalID == animalID }))
 ```
-A `#Predicate` can only reach persisted properties, and `animal` is now computed. The raw id is also the faster comparison.
 
-The unique constraint on `id` is what lets a pull upsert without duplicating rows. Adding it changes the store schema, which is why `makeContainerWithRecovery()` exists: a simulator store that cannot migrate is moved aside and a fresh one opened.
+In `App/Voice/PredictionService.swift`, replace line 31, inside `labeledSamples(for:context:)`:
+```swift
+        let recordings = try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animal?.id == animalID }))
+```
+with:
+```swift
+        let recordings = try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animalID == animalID }))
+```
+
+In `App/Voice/InsightsModel.swift`, replace line 69, inside `summary(for:context:)`:
+```swift
+        let recordings = try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animal?.id == animalID }))
+```
+with:
+```swift
+        let recordings = try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.animalID == animalID }))
+```
+
+The two lines are identical, so check both files afterwards rather than assuming one edit covered them:
+```bash
+grep -rn "animal?.id" App/
+```
+Expected: two hits, `App/Views/Voice/TagSheet.swift:28` and `App/Views/Voice/VoiceHistoryView.swift:12`. Both are ordinary Swift closures over already-fetched models, not `#Predicate` bodies, so a computed property is fine there and neither is changed.
+
+`id` is already `@Attribute(.unique)` on all four models, so the unique constraint that lets a pull upsert without duplicating rows costs nothing here. The schema still changes, because of the columns added above, which is why `makeContainerWithRecovery()` exists: a simulator store that cannot migrate is moved aside and a fresh one opened.
 
 - [ ] **Step 4: Add the tombstone model**
 
@@ -3810,103 +4018,27 @@ Add one line so it reads:
 ```
 Keep any other entries the file already has; only `DeletedRecord.self` is being added.
 
-- [ ] **Step 6: Give the built-in tags deterministic ids**
+- [ ] **Step 6: Verify the built-in tag ids are already deterministic**
 
-Create `App/Support/UUIDv5.swift`:
-```swift
-import CryptoKit
-import Foundation
+Finding 20 asked for fixed built-in tag ids so a re-seed after a wipe upserts instead of duplicating. Plan B's fix wave shipped exactly that, so there is nothing to write here. What this step does is confirm it, because the store reset in Task 5 depends on it and a silent regression would only show up as duplicated tags after a sign-out.
 
-extension UUID {
-    /// RFC 4122 version 5: a UUID derived from a namespace and a name by SHA-1. Deterministic, so
-    /// the same namespace and name give the same UUID on every device and after every reinstall.
-    /// SHA-1 is not being used as a security primitive here, only as the hash RFC 4122 specifies.
-    static func v5(namespace: UUID, name: String) -> UUID {
-        var input = Data()
-        withUnsafeBytes(of: namespace.uuid) { input.append(contentsOf: $0) }
-        input.append(contentsOf: Array(name.utf8))
+`App/Persistence/VoiceTagSeed.swift` on the branch has:
+- `static func builtInID(kind: VoiceTagKind, name: String) -> UUID`, a version 5 UUID over the RFC 4122 DNS namespace `6BA7B810-9DAD-11D1-80B4-00C04FD430C8` and the string `"\(kind.rawValue):\(name)"`, computed with `Insecure.SHA1` and stamped with the version and variant bits.
+- `seedIfNeeded(context:) throws -> Int`, which skips a built-in when a row already carries its id **or** when a same-kind row already carries its name, so a renamed built-in is recognised by id and a hand-made tag sharing a built-in's name is not shadowed.
+- `run(_:)`, which seeds on **every** launch. The old `hasSeededVoiceTags` UserDefaults flag is retired: `seededKey` survives only so an old install's value has a name in the source.
 
-        var bytes = Array(Insecure.SHA1.hash(data: input).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50  // version 5
-        bytes[8] = (bytes[8] & 0x3F) | 0x80  // RFC 4122 variant
+There is no `UUID.v5` extension and no `builtInNamespace` symbol in the tree, and this plan adds neither. `VoiceTag` also gained `init(id:kind:name:isBuiltIn:sortOrder:)`, which is what Task 9's pull path uses to build a tag with the server's id.
 
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3],
-                           bytes[4], bytes[5], bytes[6], bytes[7],
-                           bytes[8], bytes[9], bytes[10], bytes[11],
-                           bytes[12], bytes[13], bytes[14], bytes[15]))
-    }
-}
+Check all of that rather than trusting it:
+```bash
+cd /Users/asheslab/Documents/work/cat-voice
+grep -n "builtInID\|seededKey\|UserDefaults\|namespace" App/Persistence/VoiceTagSeed.swift
+grep -rn "UUID.v5\|builtInNamespace" App/ || echo "neither symbol exists, as expected"
+grep -n "init(id:" App/Models/VoiceTag.swift
 ```
+Expected: `builtInID` and the private `namespace` are present, `UserDefaults` appears nowhere in `VoiceTagSeed.swift`, `seededKey` is present but only as a retired constant, the second grep prints its fallback line, and `VoiceTag` has the id-taking initializer.
 
-In `App/Persistence/VoiceTagSeed.swift`, add two members after `static let seededKey = "hasSeededVoiceTags"`:
-```swift
-    /// Fixed namespace for built-in tag ids. Any UUID works; what matters is that this literal is
-    /// never changed, because every existing built-in tag id is derived from it.
-    static let builtInNamespace = UUID(uuidString: "8F1D6A52-3C4E-4B0A-9E77-2A5C1B3D4E6F")!
-
-    /// The id a built-in tag has on every device. Deterministic ids are what make a re-seed after a
-    /// wipe an upsert rather than a second copy, and what make one device's "Hungry" the same row
-    /// as another device's "Hungry".
-    static func builtInID(kind: VoiceTagKind, name: String) -> UUID {
-        UUID.v5(namespace: builtInNamespace, name: "\(kind.rawValue)|\(name)")
-    }
-```
-
-and replace the body of `seedIfNeeded(context:)`, which currently matches on name, with one that matches on the deterministic id:
-```swift
-    /// Inserts any built-in tag whose id is missing. Returns how many were added. Safe to call on
-    /// every launch and on every store reset: matching on the deterministic id means a second call
-    /// finds what the first one wrote, whatever the UserDefaults guard says.
-    @discardableResult
-    static func seedIfNeeded(context: ModelContext) throws -> Int {
-        let existing = try context.fetch(FetchDescriptor<VoiceTag>())
-        let byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var added = 0
-
-        func seed(_ names: [String], kind: VoiceTagKind) {
-            for (index, name) in names.enumerated() {
-                let id = builtInID(kind: kind, name: name)
-                if let present = byID[id] {
-                    // Already here, possibly renamed by the person or pulled from the server.
-                    // Leave the name alone; only make sure it is still marked built in.
-                    if !present.isBuiltIn {
-                        present.isBuiltIn = true
-                        present.updatedAt = Date()
-                    }
-                    continue
-                }
-                let tag = VoiceTag(kind: kind, name: name, isBuiltIn: true, sortOrder: index)
-                tag.id = id
-                context.insert(tag)
-                added += 1
-            }
-        }
-
-        seed(activities, kind: .activity)
-        seed(meanings, kind: .meaning)
-        if added > 0 { try context.save() }
-        return added
-    }
-```
-
-`run(_:)` keeps its UserDefaults guard unchanged: that guard is about not doing work on every launch, and `AppStoreLifecycle.wipeStore()` calls `seedIfNeeded` directly, past it.
-
-Plan B's `AppTests/VoiceTagSeedTests.swift` pre-inserts a tag with a random id and expects the seed to skip it by name. Matching on id changes that. Replace the first three lines of `testSeedsOnceAndOnlyMissingNames`:
-```swift
-        context.insert(VoiceTag(kind: .meaning, name: "Hungry", isBuiltIn: true, sortOrder: 0))
-        try context.save()
-        let first = try VoiceTagSeed.seedIfNeeded(context: context)
-```
-with:
-```swift
-        let hungry = VoiceTag(kind: .meaning, name: "Hungry", isBuiltIn: true, sortOrder: 0)
-        // Built-in tags are identified by a deterministic id now, not by their name.
-        hungry.id = VoiceTagSeed.builtInID(kind: .meaning, name: "Hungry")
-        context.insert(hungry)
-        try context.save()
-        let first = try VoiceTagSeed.seedIfNeeded(context: context)
-```
-The rest of that test is unchanged and still passes: one tag was already there, so the seed adds one fewer than the full set.
+`AppTests/VoiceTagSeedTests.swift` already covers this ground with `testBuiltInIDIsStableAndDiffersPerKindAndName`, `testSeedingTwiceProducesNoDuplicates`, `testSeedDoesNotReinsertARenamedBuiltIn`, `testSeedSkipsAUserCreatedTagSharingABuiltInName` and `testRunSeedsAFreshStoreEvenWhenTheOldFlagIsSet`. Step 1's `SyncFieldTests` deliberately does not repeat any of them; the one thing left to prove is the half Plan B could not test, namely that a **pulled** row carrying `builtInID(...)` merges onto the seeded row, and that lands in Task 9 Step 1 as `testAPulledBuiltInTagMergesOntoTheSeededRow`.
 
 - [ ] **Step 7: Let the media stores write a known filename**
 
@@ -3935,7 +4067,7 @@ It forwards to the existing private `write(_:to:)`, so it goes through `writeHoo
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `SyncFieldTests` thirteen cases are green, and Plan A's and Plan B's model tests still pass, including the edited `VoiceTagSeedTests`.
+Expected: PASS. `SyncFieldTests` ten cases are green, and all 59 tests that passed before this plan started still pass, `VoiceTagSeedTests`, `PredictionServiceTests`, `InsightsModelTests` and `AnimalDeletionPolicyTests` among them.
 
 Correction if an existing test fails with a SwiftData migration error on the simulator, delete the app's store and re-run:
 ```bash
@@ -3943,17 +4075,18 @@ xcrun simctl uninstall booted com.ashlab.AnimalTracker
 scripts/test-app.sh
 ```
 
-Correction if `AnimalDeletionPolicyTests` fails to compile with "cannot reference computed property in a predicate": Step 3's change to `AnimalDeletionPolicy.swift:11` was not applied.
+Correction if anything fails to compile with "cannot reference computed property in a predicate" or "key path cannot refer to computed property": one of the three `#Predicate` sites in Step 3 was missed, or the inverse keypath on `VoiceRecording.vocalizations` still names `\Vocalization.recording`. Re-run the `grep -rn "#Predicate" App/` from Step 3.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 cd /Users/asheslab/Documents/work/cat-voice
 git add App/Models/Animal.swift App/Models/VoiceRecording.swift App/Models/Vocalization.swift \
-        App/Models/VoiceTag.swift App/Models/DeletedRecord.swift App/Support/UUIDv5.swift \
-        App/Persistence/PersistenceController.swift App/Persistence/AnimalDeletionPolicy.swift \
-        App/Persistence/VoiceTagSeed.swift App/Media/MediaStore.swift App/Media/FileMediaStore.swift \
-        AppTests/SyncFieldTests.swift AppTests/VoiceTagSeedTests.swift
+        App/Models/DeletedRecord.swift App/Persistence/PersistenceController.swift \
+        App/Persistence/AnimalDeletionPolicy.swift \
+        App/Voice/PredictionService.swift App/Voice/InsightsModel.swift \
+        App/Media/MediaStore.swift App/Media/FileMediaStore.swift \
+        AppTests/SyncFieldTests.swift
 git commit -m "feat(sync): updatedAt and raw parent ids on the models, retained tombstones, deterministic tag ids
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -3980,60 +4113,79 @@ import XCTest
 
 final class SyncRowTests: XCTestCase {
     private let userID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
-    private let moment = Date(timeIntervalSince1970: 1_750_000_000.25)
+    /// A whole second. The struct-equality round trips below compare `Date`s with `==` through
+    /// `Equatable`, and a whole second survives the ISO 8601 formatter exactly. The fractional
+    /// behaviour is asserted separately, with `accuracy`, using `fractional`.
+    private let moment = Date(timeIntervalSince1970: 1_750_000_000)
+    private let fractional = Date(timeIntervalSince1970: 1_750_000_000.25)
+
+    /// Every column the server has for this table, in the order the migration declares them, minus
+    /// `server_updated_at`, which the device never sends. The uniformity tests compare against
+    /// these exact sets rather than against a subset, because the bug being guarded is a key that
+    /// goes missing, and `isSuperset(of:)` cannot see that.
+    private static let animalKeys: Set<String> = [
+        "id", "user_id", "created_at", "updated_at", "deleted_at", "name", "species", "color_hex",
+        "photo_filename", "photo_thumbnail_filename", "tracks_outdoor_time", "sort_order",
+        "is_archived", "note",
+    ]
+    private static let recordingKeys: Set<String> = [
+        "id", "user_id", "created_at", "updated_at", "deleted_at", "animal_id", "recorded_at",
+        "duration_s", "audio_filename", "status_raw", "error_message", "note", "activity_tag",
+        "meaning_tag", "user_confidence", "edited_at", "audio_uploaded_at",
+    ]
+    private static let vocalizationKeys: Set<String> = [
+        "id", "user_id", "created_at", "updated_at", "deleted_at", "recording_id", "start_s",
+        "end_s", "f0_mean", "f0_min", "f0_max", "f0_slope", "voiced_fraction", "rms_db",
+        "spectral_centroid_hz", "mfcc", "activity_tag", "meaning_tag", "user_confidence",
+        "overridden",
+    ]
+    private static let tagKeys: Set<String> = [
+        "id", "user_id", "created_at", "updated_at", "deleted_at", "kind_raw", "name",
+        "is_built_in", "sort_order",
+    ]
 
     private func json(_ value: some Encodable) throws -> [String: Any] {
         let data = try SyncCoding.encoder.encode(value)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func animalRow(deletedAt: Date? = nil, serverUpdatedAt: Date? = nil) -> AnimalRow {
+    private func animalRow(deletedAt: Date? = nil, serverUpdatedAt: Date? = nil,
+                           photoFilename: String? = "p.jpg", note: String? = "shy") -> AnimalRow {
         AnimalRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
                   serverUpdatedAt: serverUpdatedAt, deletedAt: deletedAt,
                   name: "Miso", species: "cat", colorHex: "#FF8800",
-                  photoFilename: "p.jpg", photoThumbnailFilename: "t.jpg",
-                  tracksOutdoorTime: false, sortOrder: 3, isArchived: true, note: "shy")
+                  photoFilename: photoFilename, photoThumbnailFilename: "t.jpg",
+                  tracksOutdoorTime: false, sortOrder: 3, isArchived: true, note: note)
     }
 
     func testAnimalRowUsesSnakeCaseKeysAndRoundTrips() throws {
-        let row = animalRow(deletedAt: moment, serverUpdatedAt: moment)
-        let keys = Set(try json(row).keys)
-        XCTAssertTrue(keys.isSuperset(of: ["id", "user_id", "created_at", "updated_at", "server_updated_at",
-                                           "deleted_at", "color_hex", "photo_filename",
-                                           "photo_thumbnail_filename", "tracks_outdoor_time",
-                                           "sort_order", "is_archived"]))
-        XCTAssertFalse(keys.contains("userID"))
+        let row = animalRow(deletedAt: moment)
+        XCTAssertEqual(Set(try json(row).keys), Self.animalKeys)
+        XCTAssertFalse(Set(try json(row).keys).contains("userID"))
         let back = try SyncCoding.decoder.decode(AnimalRow.self, from: SyncCoding.encoder.encode(row))
         XCTAssertEqual(back, row)
     }
 
     func testVoiceRecordingRowUsesSnakeCaseKeysAndRoundTrips() throws {
         let row = VoiceRecordingRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
-                                    serverUpdatedAt: moment, deletedAt: moment,
+                                    serverUpdatedAt: nil, deletedAt: moment,
                                     animalID: UUID(), recordedAt: moment, durationS: 1.25,
                                     audioFilename: "x-audio.m4a", statusRaw: "analyzed", errorMessage: nil,
                                     note: "loud", activityTag: "Door", meaningTag: "Hungry",
                                     userConfidence: 3, editedAt: moment, audioUploadedAt: moment)
-        let keys = Set(try json(row).keys)
-        XCTAssertTrue(keys.isSuperset(of: ["animal_id", "recorded_at", "duration_s", "audio_filename",
-                                           "status_raw", "activity_tag", "meaning_tag",
-                                           "user_confidence", "edited_at", "audio_uploaded_at",
-                                           "deleted_at", "server_updated_at"]))
+        XCTAssertEqual(Set(try json(row).keys), Self.recordingKeys)
         let back = try SyncCoding.decoder.decode(VoiceRecordingRow.self, from: SyncCoding.encoder.encode(row))
         XCTAssertEqual(back, row)
     }
 
     func testVocalizationRowUsesSnakeCaseKeysAndRoundTrips() throws {
         let row = VocalizationRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
-                                  serverUpdatedAt: moment, deletedAt: nil,
+                                  serverUpdatedAt: nil, deletedAt: nil,
                                   recordingID: UUID(), startS: 0.1, endS: 0.5, f0Mean: 600, f0Min: 550,
                                   f0Max: 650, f0Slope: 100, voicedFraction: 0.9, rmsDb: -20,
                                   spectralCentroidHz: 1500, mfcc: [1, 2, 3], activityTag: nil,
                                   meaningTag: "Hungry", userConfidence: 2, overridden: true)
-        let keys = Set(try json(row).keys)
-        XCTAssertTrue(keys.isSuperset(of: ["recording_id", "start_s", "end_s", "f0_mean", "f0_min", "f0_max",
-                                           "f0_slope", "voiced_fraction", "rms_db", "spectral_centroid_hz",
-                                           "mfcc", "overridden"]))
+        XCTAssertEqual(Set(try json(row).keys), Self.vocalizationKeys)
         let back = try SyncCoding.decoder.decode(VocalizationRow.self, from: SyncCoding.encoder.encode(row))
         XCTAssertEqual(back, row)
         XCTAssertEqual(back.mfcc, [1, 2, 3])
@@ -4041,45 +4193,119 @@ final class SyncRowTests: XCTestCase {
 
     func testVoiceTagRowUsesSnakeCaseKeysAndRoundTrips() throws {
         let row = VoiceTagRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
-                              serverUpdatedAt: moment, deletedAt: nil,
+                              serverUpdatedAt: nil, deletedAt: nil,
                               kindRaw: "meaning", name: "Hungry", isBuiltIn: true, sortOrder: 2)
-        let keys = Set(try json(row).keys)
-        XCTAssertTrue(keys.isSuperset(of: ["kind_raw", "name", "is_built_in", "sort_order"]))
+        XCTAssertEqual(Set(try json(row).keys), Self.tagKeys)
         let back = try SyncCoding.decoder.decode(VoiceTagRow.self, from: SyncCoding.encoder.encode(row))
         XCTAssertEqual(back, row)
     }
 
-    /// `server_updated_at` belongs to the server's trigger. A row the device is pushing leaves it
-    /// nil, and a nil optional is omitted rather than sent as JSON null, so the push never argues
-    /// with the trigger. A nil `deleted_at` is omitted for the same reason, which is also why an
-    /// ordinary edit cannot clear a tombstone the server already has.
-    func testNilServerCursorAndNilDeletedAtAreOmittedFromAPush() throws {
-        let keys = Set(try json(animalRow()).keys)
-        XCTAssertFalse(keys.contains("server_updated_at"))
-        XCTAssertFalse(keys.contains("deleted_at"))
-        XCTAssertTrue(keys.contains("updated_at"))
+    /// The defect this replaces. v2 asserted that a nil `server_updated_at` and a nil `deleted_at`
+    /// were *omitted*, which is what the synthesized encoder does and what makes every real push
+    /// fail: PostgREST rejects a bulk upsert whose objects do not all carry the same keys
+    /// (PGRST102), and a batch always mixes tombstones with ordinary rows. `InMemoryRemoteStore`
+    /// never sees JSON, so nothing else in this suite would notice.
+    ///
+    /// So: one key set per table, identical across every row in a mixed batch, `deleted_at`
+    /// present as JSON null on the rows that have no tombstone, and `server_updated_at` on none of
+    /// them.
+    func testEveryRowInAMixedBatchEncodesTheSameKeySet() throws {
+        let animals: [AnimalRow] = [
+            animalRow(),
+            animalRow(deletedAt: moment),
+            animalRow(photoFilename: nil, note: nil),
+            AnimalRow.tombstone(id: UUID(), userID: userID, deletedAt: moment),
+        ]
+        for row in animals {
+            XCTAssertEqual(Set(try json(row).keys), Self.animalKeys)
+            XCTAssertFalse(Set(try json(row).keys).contains("server_updated_at"))
+        }
+
+        let recordings: [VoiceRecordingRow] = [
+            VoiceRecordingRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
+                              serverUpdatedAt: nil, deletedAt: nil, animalID: UUID(), recordedAt: moment,
+                              durationS: 1, audioFilename: "a.m4a", statusRaw: "analyzed",
+                              errorMessage: nil, note: "", activityTag: nil, meaningTag: nil,
+                              userConfidence: nil, editedAt: nil, audioUploadedAt: nil),
+            VoiceRecordingRow.tombstone(id: UUID(), userID: userID, deletedAt: moment),
+        ]
+        for row in recordings { XCTAssertEqual(Set(try json(row).keys), Self.recordingKeys) }
+
+        let vocalizations: [VocalizationRow] = [
+            VocalizationRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
+                            serverUpdatedAt: nil, deletedAt: nil, recordingID: UUID(), startS: 0,
+                            endS: 1, f0Mean: nil, f0Min: nil, f0Max: nil, f0Slope: nil,
+                            voicedFraction: 0.5, rmsDb: -30, spectralCentroidHz: 900, mfcc: [],
+                            activityTag: nil, meaningTag: nil, userConfidence: nil, overridden: false),
+            VocalizationRow.tombstone(id: UUID(), userID: userID, deletedAt: moment),
+        ]
+        for row in vocalizations { XCTAssertEqual(Set(try json(row).keys), Self.vocalizationKeys) }
+
+        let tags: [VoiceTagRow] = [
+            VoiceTagRow(id: UUID(), userID: userID, createdAt: moment, updatedAt: moment,
+                        serverUpdatedAt: nil, deletedAt: nil, kindRaw: "meaning", name: "Hungry",
+                        isBuiltIn: true, sortOrder: 0),
+            VoiceTagRow.tombstone(id: UUID(), userID: userID, deletedAt: moment),
+        ]
+        for row in tags { XCTAssertEqual(Set(try json(row).keys), Self.tagKeys) }
     }
 
+    /// A key that is present has to be present as null, not as a missing value dressed up by
+    /// `JSONSerialization`. `NSNull` is what a JSON null deserializes to.
+    func testAbsentValuesAreEncodedAsJsonNullRatherThanOmitted() throws {
+        let row = animalRow(photoFilename: nil, note: nil)
+        let payload = try json(row)
+        XCTAssertTrue(payload["deleted_at"] is NSNull)
+        XCTAssertTrue(payload["photo_filename"] is NSNull)
+        XCTAssertTrue(payload["note"] is NSNull)
+        XCTAssertFalse(payload["updated_at"] is NSNull)
+
+        let vocalization = VocalizationRow.tombstone(id: UUID(), userID: userID, deletedAt: moment)
+        let vocalizationPayload = try json(vocalization)
+        XCTAssertTrue(vocalizationPayload["recording_id"] is NSNull)
+        XCTAssertTrue(vocalizationPayload["f0_mean"] is NSNull)
+    }
+
+    /// The server sends `server_updated_at` on a pull, so the decoder still has to take it. It is
+    /// decoded from a payload shaped like the server's, because the device's own encoder never
+    /// produces one.
     func testServerCursorDecodesWhenThePullSendsIt() throws {
-        let row = animalRow(serverUpdatedAt: moment)
-        let back = try SyncCoding.decoder.decode(AnimalRow.self, from: SyncCoding.encoder.encode(row))
+        let payload = """
+        {"id":"\(UUID().uuidString)","user_id":"\(userID.uuidString)",
+         "created_at":"2025-06-15T15:06:40.000Z","updated_at":"2025-06-15T15:06:40.000Z",
+         "server_updated_at":"2025-06-15T15:06:40.250Z","deleted_at":null,
+         "name":"Miso","species":"cat","color_hex":"#FF8800",
+         "photo_filename":null,"photo_thumbnail_filename":null,
+         "tracks_outdoor_time":true,"sort_order":0,"is_archived":false,"note":null}
+        """
+        let back = try SyncCoding.decoder.decode(AnimalRow.self, from: Data(payload.utf8))
         XCTAssertEqual(try XCTUnwrap(back.serverUpdatedAt).timeIntervalSince1970,
-                       moment.timeIntervalSince1970, accuracy: 0.001)
+                       fractional.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertNil(back.deletedAt)
+        XCTAssertNil(back.photoFilename)
+        XCTAssertEqual(back.name, "Miso")
+    }
+
+    /// 1_750_000_000.25 is 2025-06-15T15:06:40.250Z, which is the timestamp the payload above
+    /// carries. Computed, not guessed:
+    /// `python3 -c "import datetime;print(datetime.datetime.fromtimestamp(1750000000.25, datetime.timezone.utc).isoformat())"`
+    func testTheFixtureTimestampIsWhatTheDecoderTestClaims() throws {
+        XCTAssertEqual(SyncCoding.string(from: fractional), "2025-06-15T15:06:40.250Z")
     }
 
     func testDatesSurviveARoundTripToTheMillisecond() throws {
-        let row = VoiceTagRow.tombstone(id: UUID(), userID: userID, deletedAt: moment)
+        let row = VoiceTagRow.tombstone(id: UUID(), userID: userID, deletedAt: fractional)
         let back = try SyncCoding.decoder.decode(VoiceTagRow.self, from: SyncCoding.encoder.encode(row))
-        XCTAssertEqual(back.updatedAt.timeIntervalSince1970, moment.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(back.updatedAt.timeIntervalSince1970, fractional.timeIntervalSince1970, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(back.deletedAt).timeIntervalSince1970,
-                       moment.timeIntervalSince1970, accuracy: 0.001)
+                       fractional.timeIntervalSince1970, accuracy: 0.001)
     }
 
     func testDatesEncodeAsIso8601WithFractionalSeconds() throws {
-        let row = VoiceTagRow.tombstone(id: UUID(), userID: userID, deletedAt: moment)
+        let row = VoiceTagRow.tombstone(id: UUID(), userID: userID, deletedAt: fractional)
         let encoded = try XCTUnwrap(try json(row)["deleted_at"] as? String)
         XCTAssertTrue(encoded.hasSuffix("Z"), encoded)
-        XCTAssertTrue(encoded.contains("."), encoded)
+        XCTAssertTrue(encoded.contains(".250"), encoded)
     }
 
     func testTombstonesCarryTheIdTheUserAndTheDeletionTime() {
@@ -4161,13 +4387,38 @@ protocol SyncRow {
     var deletedAt: Date? { get set }
 }
 
+/// Why all four row types below write their own `encode(to:)` instead of taking the synthesized
+/// one, in one place rather than four times:
+///
+/// PostgREST refuses a bulk insert or upsert whose objects do not all carry the same set of keys,
+/// with `PGRST102`. Swift's synthesized encoder uses `encodeIfPresent` for optionals, so the key
+/// set of an encoded row depends on which of its optionals happen to be nil. Every push batch
+/// mixes tombstones (`deleted_at` set, parent id nil) with ordinary rows (`deleted_at` nil, parent
+/// id set), so the synthesized encoder produces two different key sets in one array and the server
+/// rejects the whole request. `InMemoryRemoteStore` holds Swift values and never encodes anything,
+/// so no test in this plan would catch it: it would be a clean suite and a backend that never
+/// accepted a single write.
+///
+/// So every row emits every column key, every time. `encode(_:forKey:)` on an `Optional` calls
+/// `encodeNil()`, which is a JSON null, and `encodeIfPresent` appears nowhere in this file. The
+/// one column that is never emitted is `server_updated_at`: it belongs to the server's trigger,
+/// and a device that sent it would be arguing with the pull cursor.
+///
+/// Sending `deleted_at` as an explicit null on every ordinary edit is safe because a delete is
+/// made permanent server-side by `sync_row_guard()`'s
+/// `new.deleted_at := coalesce(old.deleted_at, new.deleted_at)`, and locally by the retained
+/// tombstone. Neither mechanism ever depended on the key being absent.
+///
+/// Decoding stays synthesized. `init(from:)` uses `decodeIfPresent` for optionals, so a pull that
+/// carries `server_updated_at` decodes it, an explicit null decodes to nil, and a column the
+/// server leaves out decodes to nil as well.
 struct AnimalRow: Codable, Equatable, SyncRow {
     var id: UUID
     var userID: UUID
     var createdAt: Date
     var updatedAt: Date
-    /// Set by the server's trigger, read by the pull cursor, never sent by the device. Nil on a
-    /// push, and a nil optional is omitted from the JSON rather than sent as null.
+    /// Set by the server's trigger, read by the pull cursor, never sent by the device: `encode(to:)`
+    /// below omits this one key and only this one.
     var serverUpdatedAt: Date?
     var deletedAt: Date?
     var name: String
@@ -4193,6 +4444,25 @@ struct AnimalRow: Codable, Equatable, SyncRow {
         case tracksOutdoorTime = "tracks_outdoor_time"
         case sortOrder = "sort_order"
         case isArchived = "is_archived"
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        // server_updated_at is deliberately not encoded.
+        try container.encode(deletedAt, forKey: .deletedAt)
+        try container.encode(name, forKey: .name)
+        try container.encode(species, forKey: .species)
+        try container.encode(colorHex, forKey: .colorHex)
+        try container.encode(photoFilename, forKey: .photoFilename)
+        try container.encode(photoThumbnailFilename, forKey: .photoThumbnailFilename)
+        try container.encode(tracksOutdoorTime, forKey: .tracksOutdoorTime)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(isArchived, forKey: .isArchived)
+        try container.encode(note, forKey: .note)
     }
 
     /// A delete is an ordinary upsert with `deleted_at` set and `updated_at` equal to it, so it
@@ -4244,6 +4514,27 @@ struct VoiceRecordingRow: Codable, Equatable, SyncRow {
         case userConfidence = "user_confidence"
         case editedAt = "edited_at"
         case audioUploadedAt = "audio_uploaded_at"
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+        try container.encode(animalID, forKey: .animalID)
+        try container.encode(recordedAt, forKey: .recordedAt)
+        try container.encode(durationS, forKey: .durationS)
+        try container.encode(audioFilename, forKey: .audioFilename)
+        try container.encode(statusRaw, forKey: .statusRaw)
+        try container.encode(errorMessage, forKey: .errorMessage)
+        try container.encode(note, forKey: .note)
+        try container.encode(activityTag, forKey: .activityTag)
+        try container.encode(meaningTag, forKey: .meaningTag)
+        try container.encode(userConfidence, forKey: .userConfidence)
+        try container.encode(editedAt, forKey: .editedAt)
+        try container.encode(audioUploadedAt, forKey: .audioUploadedAt)
     }
 
     static func tombstone(id: UUID, userID: UUID, deletedAt: Date) -> VoiceRecordingRow {
@@ -4300,6 +4591,30 @@ struct VocalizationRow: Codable, Equatable, SyncRow {
         case userConfidence = "user_confidence"
     }
 
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+        try container.encode(recordingID, forKey: .recordingID)
+        try container.encode(startS, forKey: .startS)
+        try container.encode(endS, forKey: .endS)
+        try container.encode(f0Mean, forKey: .f0Mean)
+        try container.encode(f0Min, forKey: .f0Min)
+        try container.encode(f0Max, forKey: .f0Max)
+        try container.encode(f0Slope, forKey: .f0Slope)
+        try container.encode(voicedFraction, forKey: .voicedFraction)
+        try container.encode(rmsDb, forKey: .rmsDb)
+        try container.encode(spectralCentroidHz, forKey: .spectralCentroidHz)
+        try container.encode(mfcc, forKey: .mfcc)
+        try container.encode(activityTag, forKey: .activityTag)
+        try container.encode(meaningTag, forKey: .meaningTag)
+        try container.encode(userConfidence, forKey: .userConfidence)
+        try container.encode(overridden, forKey: .overridden)
+    }
+
     static func tombstone(id: UUID, userID: UUID, deletedAt: Date) -> VocalizationRow {
         VocalizationRow(id: id, userID: userID, createdAt: deletedAt, updatedAt: deletedAt,
                         serverUpdatedAt: nil, deletedAt: deletedAt,
@@ -4333,6 +4648,19 @@ struct VoiceTagRow: Codable, Equatable, SyncRow {
         case sortOrder = "sort_order"
     }
 
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+        try container.encode(kindRaw, forKey: .kindRaw)
+        try container.encode(name, forKey: .name)
+        try container.encode(isBuiltIn, forKey: .isBuiltIn)
+        try container.encode(sortOrder, forKey: .sortOrder)
+    }
+
     static func tombstone(id: UUID, userID: UUID, deletedAt: Date) -> VoiceTagRow {
         VoiceTagRow(id: id, userID: userID, createdAt: deletedAt, updatedAt: deletedAt,
                     serverUpdatedAt: nil, deletedAt: deletedAt,
@@ -4344,7 +4672,11 @@ struct VoiceTagRow: Codable, Equatable, SyncRow {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `SyncRowTests` twelve cases are green.
+Expected: PASS. `SyncRowTests` fourteen cases are green.
+
+Correction if `testEveryRowInAMixedBatchEncodesTheSameKeySet` reports a missing key: one column was left out of that type's `encode(to:)`. Compare the method against the type's `CodingKeys` line by line; every case except `serverUpdatedAt` must appear exactly once.
+
+Correction if it reports an *extra* `server_updated_at`: a `try container.encode(serverUpdatedAt, ...)` line was copied in with the rest. The device never sends that column.
 
 - [ ] **Step 5: Check the row keys against the migration**
 
@@ -4354,8 +4686,10 @@ cd /Users/asheslab/Documents/work/cat-voice
 grep -oE '= "[a-z0-9_]+"' App/Sync/SyncRows.swift | sed 's/= "//; s/"//' | sort -u > /tmp/row-keys.txt
 grep -oE '^    [a-z0-9_]+ ' supabase/migrations/20260919120000_voice_milestone.sql | tr -d ' ' | sort -u > /tmp/sql-cols.txt
 comm -23 /tmp/row-keys.txt /tmp/sql-cols.txt
+grep -c "encodeIfPresent" App/Sync/SyncRows.swift || true
+grep -c "container.encode(serverUpdatedAt" App/Sync/SyncRows.swift || true
 ```
-Expected: nothing is printed. Every snake_case coding key on the left is a real column in the migration. A name that appears here is a typo to fix before committing, not something to work around.
+Expected: `comm` prints nothing, meaning every snake_case coding key on the left is a real column in the migration; a name that appears here is a typo to fix before committing, not something to work around. Both greps print `0`: `encodeIfPresent` is what makes a key set depend on a row's contents, and `server_updated_at` is the server's column.
 
 - [ ] **Step 6: Commit**
 
@@ -4377,7 +4711,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `AppTests/LocalStoreTests.swift`
 
 **Interfaces:**
-- Consumes: the row structs, `SyncRow` and `RemoteAudioPath` (Task 8); `SyncTable`, `SyncState` (Task 3); `DeletedRecord`, `Tombstone`, `MediaStore.write(_:as:)`, `animalID`, `recordingID` (Task 7); `Animal`, `VoiceRecording`, `Vocalization`, `VoiceTag`, `InMemoryMediaStore`, `TestSupport`, `VoiceFixtures` (Plans A and B).
+- Consumes: the row structs, `SyncRow` and `RemoteAudioPath` (Task 8); `SyncTable`, `SyncState` (Task 3); `DeletedRecord`, `Tombstone`, `MediaStore.write(_:as:)`, `animalID`, `recordingID`, `VoiceTagSeed.builtInID` (Task 7); `Animal`, `VoiceRecording`, `Vocalization`, `VoiceTag`, `Segment`, `InMemoryMediaStore`, `TestSupport`, `VoiceFixtures` (Plans A and B).
 - Produces:
   - `protocol RemoteStore` with `upsertAnimals/Recordings/Vocalizations/Tags`, `fetchAnimals/Recordings/Vocalizations/Tags(since:offset:limit:)`, `uploadAudio(path:data:)`, `downloadAudio(path:)`, `removeAudio(paths:)`.
   - `final class InMemoryRemoteStore: RemoteStore` with `animals/recordings/vocalizations/tags: [UUID: Row]`, `audio: [String: Data]`, `uploadCount`, `downloadCount`, `removedPaths`, `failNextCall`, `beforeCall`, `pageCap`, `serverClock`, `enum Failure: Error { case scripted, notFound }`.
@@ -4470,6 +4804,27 @@ final class LocalStoreTests: XCTestCase {
         let vocalizations = try store.changedVocalizations(after: SyncState.epoch)
         XCTAssertEqual(vocalizations[0].recordingID, recording.id)
         XCTAssertEqual(vocalizations[0].mfcc.count, 13)
+    }
+
+    /// `VoiceRecording.vocalizations` declares `inverse: \Vocalization.recordingLink`, so SwiftData
+    /// can set `recordingLink` from the parent side without going through the computed `recording`
+    /// door that also writes `recordingID`. The push falls back to the link, so a sound attached
+    /// that way still names its parent instead of pushing a null `recording_id`.
+    func testAVocalizationLinkedFromTheParentSideStillPushesItsParentId() throws {
+        let (store, context, _) = try makeStore()
+        let recording = VoiceRecording(audioFilename: "inv-audio.m4a", durationS: 1)
+        context.insert(recording)
+        let vocalization = Vocalization(segment: Segment(startS: 0, endS: 0.2), features: VoiceFixtures.features())
+        context.insert(vocalization)
+        // Attached from the parent, which is the path that bypasses the door.
+        recording.vocalizations = [vocalization]
+        try context.save()
+        XCTAssertNotNil(vocalization.recordingLink, "SwiftData resolved the inverse")
+
+        let rows = try store.changedVocalizations(after: SyncState.epoch)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].recordingID, recording.id,
+                       "an inverse-set link must not push a null recording_id")
     }
 
     // MARK: tombstones
@@ -4677,6 +5032,81 @@ final class LocalStoreTests: XCTestCase {
                                            isBuiltIn: false, sortOrder: 0)])
         try store.save()
         XCTAssertEqual(try context.fetch(FetchDescriptor<VoiceTag>()).map(\.name), ["Back on purpose"])
+    }
+
+    /// A pulled animal tombstone cannot leave its recordings behind: they would carry an
+    /// `animalID` pointing at nothing, show up under no animal, and hold on to their audio files
+    /// forever.
+    func testAPulledAnimalTombstoneTakesItsRecordingsAndAudioWithIt() throws {
+        let (store, context, media) = try makeStore()
+        let animal = Animal(name: "Miso", species: "cat")
+        animal.updatedAt = Date(timeIntervalSince1970: 1000)
+        context.insert(animal)
+        let recording = VoiceRecording(audioFilename: "cascade-audio.m4a", durationS: 1, animal: animal)
+        context.insert(recording)
+        let vocalization = Vocalization(segment: Segment(startS: 0, endS: 0.2), features: VoiceFixtures.features())
+        vocalization.recording = recording
+        context.insert(vocalization)
+        try context.save()
+        try media.write(Data([1]), as: "cascade-audio.m4a")
+
+        // A recording that belongs to nobody must survive: the cascade is scoped by animalID.
+        let unrelated = VoiceRecording(audioFilename: "keep-audio.m4a", durationS: 1)
+        context.insert(unrelated)
+        try context.save()
+        try media.write(Data([2]), as: "keep-audio.m4a")
+
+        try store.apply(animals: [AnimalRow.tombstone(id: animal.id, userID: userID,
+                                                      deletedAt: Date(timeIntervalSince1970: 2000))])
+        try store.save()
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Animal>()).count, 0)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<VoiceRecording>()).map(\.audioFilename),
+                       ["keep-audio.m4a"], "only the deleted animal's recordings go")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Vocalization>()).count, 0)
+        XCTAssertFalse(media.exists("cascade-audio.m4a"), "the audio file goes with the recording")
+        XCTAssertTrue(media.exists("keep-audio.m4a"))
+
+        // Three tombstones: the animal, its recording, its sound. All pulled, so none is ever sent
+        // back and none can be resurrected by a stale edit from another device.
+        XCTAssertEqual(try context.fetch(FetchDescriptor<DeletedRecord>()).count, 3)
+        XCTAssertTrue(try store.pendingTombstones(for: .animals).isEmpty)
+        XCTAssertTrue(try store.pendingTombstones(for: .voiceRecordings).isEmpty)
+        XCTAssertTrue(try store.pendingTombstones(for: .vocalizations).isEmpty)
+    }
+
+    /// Moved here from Task 7, where it fetched a row and reassigned its name to the value it
+    /// already held and so could not fail. This one calls the pull path: a `VoiceTagRow` carrying
+    /// the deterministic built-in id merges onto the seeded row instead of inserting a second one,
+    /// which is what makes a store reset followed by a full pull come out with one "Eating".
+    func testAPulledBuiltInTagMergesOntoTheSeededRow() throws {
+        let (store, context, _) = try makeStore()
+        _ = try VoiceTagSeed.seedIfNeeded(context: context)
+        let before = try context.fetchCount(FetchDescriptor<VoiceTag>())
+        let id = VoiceTagSeed.builtInID(kind: .activity, name: "Eating")
+        let seeded = try XCTUnwrap(try context.fetch(FetchDescriptor<VoiceTag>()).first { $0.id == id })
+        seeded.updatedAt = Date(timeIntervalSince1970: 100)
+        try context.save()
+
+        try store.apply(tags: [VoiceTagRow(id: id, userID: userID, createdAt: SyncState.epoch,
+                                           updatedAt: Date(timeIntervalSince1970: 500),
+                                           serverUpdatedAt: Date(timeIntervalSince1970: 500),
+                                           deletedAt: nil, kindRaw: "activity", name: "Eating a meal",
+                                           isBuiltIn: true, sortOrder: 0)])
+        try store.save()
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), before,
+                       "the pulled row merged onto the seeded one rather than doubling it")
+        XCTAssertEqual(seeded.name, "Eating a meal", "and it is the same object that changed")
+
+        // A different id, same name, is a different tag: the merge is by id, never by name.
+        try store.apply(tags: [VoiceTagRow(id: UUID(), userID: userID, createdAt: SyncState.epoch,
+                                           updatedAt: Date(timeIntervalSince1970: 600),
+                                           serverUpdatedAt: Date(timeIntervalSince1970: 600),
+                                           deletedAt: nil, kindRaw: "activity", name: "Eating a meal",
+                                           isBuiltIn: false, sortOrder: 99)])
+        try store.save()
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), before + 1)
     }
 
     // MARK: audio
@@ -5078,7 +5508,16 @@ final class SwiftDataLocalStore: LocalStore {
             VocalizationRow(id: vocalization.id, userID: userID, createdAt: vocalization.createdAt,
                             updatedAt: vocalization.updatedAt, serverUpdatedAt: nil,
                             deletedAt: graves[vocalization.id],
-                            recordingID: vocalization.recordingID, startS: vocalization.startS,
+                            // `recordingLink` is the fallback, not the source of truth. SwiftData
+                            // can set it on its own through the inverse declared on
+                            // `VoiceRecording.vocalizations`, which does not go through the
+                            // computed `recording` door and so does not write `recordingID`. The
+                            // reverse cannot happen: the door always writes both. There is no
+                            // matching fallback on `animalID` because `Animal` declares no
+                            // recordings relationship, so nothing but the door can write
+                            // `animalLink`.
+                            recordingID: vocalization.recordingID ?? vocalization.recordingLink?.id,
+                            startS: vocalization.startS,
                             endS: vocalization.endS, f0Mean: vocalization.f0Mean, f0Min: vocalization.f0Min,
                             f0Max: vocalization.f0Max, f0Slope: vocalization.f0Slope,
                             voicedFraction: vocalization.voicedFraction, rmsDb: vocalization.rmsDb,
@@ -5129,6 +5568,7 @@ final class SwiftDataLocalStore: LocalStore {
                 if let local {
                     if let photo = local.photoFilename { mediaStore.delete(photo) }
                     if let thumb = local.photoThumbnailFilename { mediaStore.delete(thumb) }
+                    try cascadeDelete(animalID: row.id, deletedAt: deletedAt)
                     context.delete(local)
                 }
                 Tombstone.recordPulled(.animals, id: row.id, deletedAt: deletedAt, in: context)
@@ -5250,8 +5690,9 @@ final class SwiftDataLocalStore: LocalStore {
             }
             if let buried = graves[row.id], row.updatedAt <= buried { continue }
             guard shouldApply(row.updatedAt, over: local?.updatedAt) else { continue }
-            let tag = local ?? VoiceTag(kind: .activity, name: row.name)
-            tag.id = row.id
+            // `VoiceTag` takes its id at init (Plan B's fix wave), which is what lets a pulled
+            // built-in land on the id `VoiceTagSeed.builtInID` would have given it.
+            let tag = local ?? VoiceTag(id: row.id, kind: .activity, name: row.name)
             tag.createdAt = row.createdAt
             tag.updatedAt = row.updatedAt
             tag.kindRaw = row.kindRaw
@@ -5297,6 +5738,30 @@ final class SwiftDataLocalStore: LocalStore {
         return remote > local
     }
 
+    /// A pulled animal tombstone takes that animal's recordings, their sounds and their audio files
+    /// with it.
+    ///
+    /// Locally this has to happen now rather than when the children's own tombstones arrive. The
+    /// server does send one tombstone per row, but they may be in a later page or a later cycle,
+    /// and until they land the recordings sit in the store carrying an `animalID` that resolves to
+    /// nothing: they show up under no animal in History, their audio files are never reclaimed, and
+    /// `AnimalDeletionPolicy` would count them against an animal that no longer exists.
+    ///
+    /// The tombstones written here are marked pulled, so they are never pushed back and cannot
+    /// resurrect anything, and when the server's own tombstones for these rows do arrive they find
+    /// the work already done and are a no-op.
+    private func cascadeDelete(animalID: UUID, deletedAt: Date) throws {
+        for recording in try fetchAll(VoiceRecording.self) where recording.animalID == animalID {
+            for vocalization in recording.sortedVocalizations {
+                Tombstone.recordPulled(.vocalizations, id: vocalization.id, deletedAt: deletedAt, in: context)
+                context.delete(vocalization)
+            }
+            mediaStore.delete(recording.audioFilename)
+            Tombstone.recordPulled(.voiceRecordings, id: recording.id, deletedAt: deletedAt, in: context)
+            context.delete(recording)
+        }
+    }
+
     private func tombstones(for table: SyncTable) throws -> [DeletedRecord] {
         let entity = table.rawValue
         return try context.fetch(FetchDescriptor<DeletedRecord>(predicate: #Predicate { $0.entity == entity }))
@@ -5332,7 +5797,11 @@ extension VoiceTag: SyncIdentifiable {}
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `LocalStoreTests` eighteen cases are green.
+Expected: PASS. `LocalStoreTests` twenty-one cases are green.
+
+Correction if `testAVocalizationLinkedFromTheParentSideStillPushesItsParentId` fails with a nil `recordingID`: `changedVocalizations` is reading `vocalization.recordingID` alone instead of `vocalization.recordingID ?? vocalization.recordingLink?.id`.
+
+Correction if `testAPulledAnimalTombstoneTakesItsRecordingsAndAudioWithIt` leaves the unrelated recording deleted: `cascadeDelete` is not filtering on `recording.animalID == animalID`.
 
 Correction if `testAnEditOlderThanTheTombstoneDoesNotResurrectTheRow` fails on the second half: the `graves[row.id]` guard used `<` rather than `<=`, or it was placed after the `shouldApply` check. The tombstone guard has to come first, because there is no local row to compare against once the row is gone.
 
@@ -5616,6 +6085,46 @@ final class SyncEngineTests: XCTestCase {
 
         _ = try await engine.sync(state: SyncState())
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), 5)
+    }
+
+    /// The over-skip the stored offset used to cause. Three rows share one `server_updated_at`, so
+    /// the cursor comes to rest inside that bucket with an offset of 3. Then one of those rows is
+    /// edited from another device: the trigger moves it to a newer stamp, it leaves the bucket, and
+    /// the rows behind it shift down. Resuming at offset 3 would land past the end of the new
+    /// window and that edit would be missed forever, because the cursor only moves forward.
+    func testARowUpdatedBetweenCyclesDoesNotMakeThePullSkipItsNeighbour() async throws {
+        let batch = (0..<3).map { index in
+            VoiceTagRow(id: UUID(), userID: userID, createdAt: SyncState.epoch,
+                        updatedAt: Date(timeIntervalSince1970: TimeInterval(index + 1)),
+                        serverUpdatedAt: nil, deletedAt: nil, kindRaw: "meaning",
+                        name: "bucket\(index)", isBuiltIn: false, sortOrder: index)
+        }
+        try await remote.upsertTags(batch)
+        // One shared stamp, and the double's clock moved past it, so anything stamped later really
+        // is later than the bucket.
+        let bucketStamp = Date(timeIntervalSince1970: 7_000_000)
+        for id in batch.map(\.id) { remote.tags[id]?.serverUpdatedAt = bucketStamp }
+        remote.serverClock = bucketStamp
+
+        var state = try await engine.sync(state: SyncState())
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), 3)
+        XCTAssertEqual(state.pullCursor(.voiceTags), bucketStamp)
+        XCTAssertEqual(state.pullOffset(.voiceTags), 3)
+
+        var moved = try XCTUnwrap(remote.tags[batch[0].id])
+        moved.name = "edited elsewhere"
+        moved.updatedAt = Date(timeIntervalSince1970: 9000)
+        try await remote.upsertTags([moved])
+        XCTAssertGreaterThan(try XCTUnwrap(remote.tags[batch[0].id]?.serverUpdatedAt), bucketStamp,
+                             "the double stamps a changed row forward, like the trigger")
+
+        state = try await engine.sync(state: state)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<VoiceTag>()).map(\.name).sorted(),
+                       ["bucket1", "bucket2", "edited elsewhere"],
+                       "the edit that left the bucket still arrives")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<VoiceTag>()), 3,
+                       "and re-reading the bucket duplicates nothing")
     }
 
     func testLastWriteWinsBothWays() async throws {
@@ -5955,7 +6464,23 @@ final class SyncEngine {
         // Parents before children, so a child row can find its parent on the first pass.
         for table in [SyncTable.animals, .voiceRecordings, .vocalizations, .voiceTags] {
             var cursor = next.pullCursor(table)
-            var offset = next.pullOffset(table)
+            // Always 0, never `next.pullOffset(table)`.
+            //
+            // The stored offset is only meaningful against the exact set of rows the server had
+            // when it was written. If any row in the cursor's timestamp bucket is updated between
+            // two cycles, the trigger moves it to a newer `server_updated_at`, it drops out of
+            // `gte(cursor)`, every row after it shifts down one place, and an offset that was
+            // right last cycle now steps over a row that has never been seen. That row would be
+            // missed permanently, because the cursor only ever moves forward.
+            //
+            // So each cycle re-reads the bucket from the beginning and skips by id what it has
+            // already applied in this cycle. The cost is at most one extra page per table per
+            // cycle, and re-applying a row costs nothing: `apply` merges on id and refuses a
+            // remote row that is not strictly newer than the local one.
+            var offset = 0
+            // Ids already applied from the current `gte(cursor)` window, so a row that appears in
+            // two pages because the window shifted under us is applied once and counted once.
+            var seen: Set<UUID> = []
             var pages = 0
 
             while pages < SyncEngine.maxPagesPerTable {
@@ -5967,22 +6492,22 @@ final class SyncEngine {
                 case .animals:
                     let rows = try await remote.fetchAnimals(since: cursor, offset: offset, limit: SyncState.pageLimit)
                     try checkpoint()
-                    try local.apply(animals: rows)
+                    try local.apply(animals: rows.filter { !seen.contains($0.id) })
                     page = SyncEngine.summarise(rows)
                 case .voiceRecordings:
                     let rows = try await remote.fetchRecordings(since: cursor, offset: offset, limit: SyncState.pageLimit)
                     try checkpoint()
-                    try local.apply(recordings: rows)
+                    try local.apply(recordings: rows.filter { !seen.contains($0.id) })
                     page = SyncEngine.summarise(rows)
                 case .vocalizations:
                     let rows = try await remote.fetchVocalizations(since: cursor, offset: offset, limit: SyncState.pageLimit)
                     try checkpoint()
-                    try local.apply(vocalizations: rows)
+                    try local.apply(vocalizations: rows.filter { !seen.contains($0.id) })
                     page = SyncEngine.summarise(rows)
                 case .voiceTags:
                     let rows = try await remote.fetchTags(since: cursor, offset: offset, limit: SyncState.pageLimit)
                     try checkpoint()
-                    try local.apply(tags: rows)
+                    try local.apply(tags: rows.filter { !seen.contains($0.id) })
                     page = SyncEngine.summarise(rows)
                 }
 
@@ -5993,18 +6518,23 @@ final class SyncEngine {
                 try local.save()
 
                 if let highest = page.highestStamp, highest > cursor {
-                    // Moved into a newer timestamp: the offset restarts inside that group.
+                    // The window moves to `highest`, so everything consumed before it falls out of
+                    // `gte(highest)` and both the offset and the seen set restart on the rows that
+                    // carry the new cursor timestamp.
                     cursor = highest
-                    offset = page.countAtHighest
+                    seen = page.idsAtHighest
+                    offset = page.idsAtHighest.count
                 } else {
-                    // Still inside the group of rows sharing the cursor timestamp.
+                    // Still inside the same window: everything on this page has been consumed.
+                    seen.formUnion(page.ids)
                     offset += page.count
                 }
             }
 
             try local.save()
             // Not clamped to the device clock: `server_updated_at` is the server's own clock, and
-            // clamping it to a device that runs slow would stall every later pull.
+            // clamping it to a device that runs slow would stall every later pull. The offset is
+            // persisted for Settings and for the tests; it is never read back as a start position.
             next.setPullCursor(table, cursor, offset: offset)
         }
         return next
@@ -6012,19 +6542,21 @@ final class SyncEngine {
 
     private struct PageSummary {
         let count: Int
+        let ids: Set<UUID>
         let highestStamp: Date?
-        /// How many rows in this page carry `highestStamp`.
-        let countAtHighest: Int
+        /// The ids in this page that carry `highestStamp`.
+        let idsAtHighest: Set<UUID>
     }
 
     private static func summarise(_ rows: [some SyncRow]) -> PageSummary {
-        let stamps = rows.compactMap(\.serverUpdatedAt)
-        guard let highest = stamps.max() else {
-            return PageSummary(count: rows.count, highestStamp: nil, countAtHighest: 0)
+        let ids = Set(rows.map(\.id))
+        guard let highest = rows.compactMap(\.serverUpdatedAt).max() else {
+            return PageSummary(count: rows.count, ids: ids, highestStamp: nil, idsAtHighest: [])
         }
         return PageSummary(count: rows.count,
+                           ids: ids,
                            highestStamp: highest,
-                           countAtHighest: stamps.filter { $0 == highest }.count)
+                           idsAtHighest: Set(rows.filter { $0.serverUpdatedAt == highest }.map(\.id)))
     }
 }
 ```
@@ -6032,7 +6564,11 @@ final class SyncEngine {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `SyncEngineTests` twenty-one cases are green.
+Expected: PASS. `SyncEngineTests` twenty-two cases are green.
+
+Correction if `testARowUpdatedBetweenCyclesDoesNotMakeThePullSkipItsNeighbour` ends with only two tags: `pull` is starting the table at `next.pullOffset(table)` instead of at 0.
+
+Correction if the same test ends with more than three tags: the `seen` set is not being carried across pages, or `apply` is inserting rather than merging on id.
 
 Correction if `testAudioIsUploadedOnceAndFlaggedOnBothSides` fails on `remote.recordings[...]?.audioUploadedAt`: the upload ran after the row push, so the flag missed its push. `sync(state:)` must call `uploadAudio()` before `push(_:)`.
 
@@ -6060,20 +6596,24 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `App/Sync/MediaResolver.swift`
 - Create: `AppTests/MediaResolverTests.swift`
 - Create: `AppTests/SyncServiceTests.swift`
-- Modify: `App/AnimalTrackerApp.swift` (wire sync into the store lifecycle, scene phase)
+- Modify: `App/AnimalTrackerApp.swift` (scene phase only)
+- Modify: `App/Views/Auth/RootView.swift` (attach sync to the store lifecycle, inside the existing `.task` before `restoreSession()`)
 - Modify: `App/Views/Settings/SettingsView.swift` (sync rows and Delete account in the Account section)
 - Modify: `App/Views/Animals/AnimalFormView.swift:159-164`
 - Modify: `App/Views/Animals/ManageAnimalsView.swift:23`, `:36`, `:86-88`, `:98-101`
+- Modify: `App/Voice/RecordingDeleter.swift` (the tombstone for every recording delete in the app)
+- Modify: `App/Voice/VoiceTagRenamer.swift` (`updatedAt` on the tag and on every label it migrates)
+- Modify: `App/Voice/AnalysisService.swift` (`apply` tombstones the sounds it replaces and stamps the recording; both failure paths stamp too)
 - Modify: `App/Views/Voice/RecordView.swift` (`finish()`)
 - Modify: `App/Views/Voice/TagSheet.swift` (`addTag(_:kind:selection:)`, `save()`)
-- Modify: `App/Views/Voice/VoiceHistoryView.swift` (`.onDelete`)
-- Modify: `App/Views/Voice/RecordingDetailView.swift` (play button, missing-file notice, delete dialog, `reanalyze()`)
-- Modify: `App/Views/Voice/VocalizationEditView.swift` (reset button, `markOverriddenIfChanged()`, `VocalizationPlayButton`)
-- Modify: `App/Views/Voice/AskView.swift` (`finish()`)
-- Modify: `App/Views/Voice/ManageVoiceTagsView.swift` (add, rename, delete)
+- Modify: `App/Views/Voice/RecordingDetailView.swift` (play button, missing-file notice, `reanalyze()`, `VocalizationPlayButton`; the delete dialog is unchanged)
+- Modify: `App/Views/Voice/VocalizationEditView.swift` (reset button, `markOverriddenIfChanged()`)
+- Modify: `App/Views/Voice/AskView.swift` (the correction callback, `finish()`)
+- Modify: `App/Views/Voice/ManageVoiceTagsView.swift` (add, delete; rename goes through `VoiceTagRenamer`)
+- **Not** modified: `App/Views/Voice/VoiceHistoryView.swift`. Its `.onDelete` already routes through `RecordingDeleter`, which is where the tombstone now lives.
 
 **Interfaces:**
-- Consumes: `SyncEngine` (Task 10); `RemoteStore`, `SwiftDataLocalStore`, `InMemoryRemoteStore` (Task 9); `SyncState`, `SyncStatus`, `SyncCancelled`, `SyncCoding` (Task 3); `RemoteAudioPath` (Task 8); `Tombstone`, `MediaStore.write(_:as:)` (Task 7); `AuthState`, `AuthService` (Task 4); `SyncCoordinating`, `AppStoreLifecycle` (Task 5).
+- Consumes: `SyncEngine` (Task 10); `RemoteStore`, `SwiftDataLocalStore`, `InMemoryRemoteStore` (Task 9); `SyncState`, `SyncStatus`, `SyncCancelled`, `SyncCoding` (Task 3); `RemoteAudioPath` (Task 8); `Tombstone`, `MediaStore.write(_:as:)` (Task 7); `AuthState`, `AuthService` (Task 4); `SyncCoordinating`, `AppStoreLifecycle`, `RootView` (Task 5); `RecordingDeleter`, `VoiceTagRenamer`, `AnalysisService`, `TagPropagation`, `ManageVoiceTagsView` (Plan B and its fix wave).
 - Produces:
   - `final class SupabaseRemoteStore: RemoteStore` with `init(client: SupabaseClient)`.
   - `@MainActor final class SyncService: ObservableObject, SyncCoordinating` with `static let shared`, `init(defaults: UserDefaults = .standard)`, `@Published private(set) var isSyncing: Bool`, `@Published private(set) var status: SyncStatus`, `@Published private(set) var lastSyncedAt: Date?`, `var statusText: String`, `var lastSyncDescription: String`, `func attach(container:mediaStore:)`, `func update(for:client:)`, `func configure(remote:userID:)`, `func bumpGeneration()`, `func cancelSync() async`, `func requestSync()`, `func syncNow() async`.
@@ -6210,6 +6750,34 @@ final class SyncServiceTests: XCTestCase {
         let service = try makeService(remote)
         await service.cancelSync()
         XCTAssertFalse(service.isSyncing)
+    }
+
+    /// A cancelled cycle persists nothing, so nothing else can move the status off `.syncing`.
+    /// Settings would read "Syncing" until the app was relaunched.
+    func testCancellingASyncLeavesAReadableStatus() async throws {
+        let remote = InMemoryRemoteStore()
+        let service = try makeService(remote)
+        // Superseded during the first server call, the way a sign-out mid-sync supersedes it.
+        remote.beforeCall = { [weak service] in service?.bumpGeneration() }
+
+        await service.syncNow()
+        await service.cancelSync()
+
+        XCTAssertEqual(service.status, .cancelled)
+        XCTAssertEqual(service.statusText, "Sync stopped")
+        XCTAssertFalse(service.isSyncing)
+    }
+
+    /// And a cancel does not overwrite a real result. The status only moves when it is `.syncing`.
+    func testCancellingAfterAFailureKeepsTheFailure() async throws {
+        let remote = InMemoryRemoteStore()
+        let service = try makeService(remote)
+        remote.failNextCall = true
+        await service.syncNow()
+        XCTAssertEqual(service.status, .failedServer)
+
+        await service.cancelSync()
+        XCTAssertEqual(service.status, .failedServer)
     }
 
     /// The status the UI shows is a category, never a server string.
@@ -6482,6 +7050,10 @@ final class SyncService: ObservableObject, SyncCoordinating {
         inFlight?.cancel()
         await inFlight?.value
         isSyncing = false
+        // The cancelled cycle returns without saving anything, by design, so nothing else will
+        // move the status off `.syncing` and Settings would read "Syncing" forever. Only `.syncing`
+        // is overwritten: a cancel must not erase a `.failedNetwork` the last real cycle earned.
+        if status == .syncing { status = .cancelled }
     }
 
     // MARK: running
@@ -6538,23 +7110,15 @@ final class SyncService: ObservableObject, SyncCoordinating {
 
 - [ ] **Step 6: Wire sync into the app**
 
+Two files, and the split matters. Everything that has to happen *before* `restoreSession()` goes in `RootView`'s `.task`, next to the call it has to precede. The scene-phase handler, which depends on nothing, stays at the app level.
+
 In `App/AnimalTrackerApp.swift`, add one property after `@StateObject private var auth = AuthService()`:
 ```swift
     @Environment(\.scenePhase) private var scenePhase
 ```
 
-and replace the `.task { ... }` modifier from Task 5 Step 7 with:
+and add one modifier to the `RootView()` in the `WindowGroup`, after `.modelContainer(store.container)`:
 ```swift
-                .task {
-                    // One connection, one order. AuthService drives the store lifecycle, and the
-                    // store lifecycle drives sync. Nothing here observes `auth.state` directly,
-                    // because SwiftUI does not define the order of two change handlers and a wipe
-                    // racing a sync is exactly the bug that ambiguity produces.
-                    store.sync = SyncService.shared
-                    SyncService.shared.attach(container: store.container, mediaStore: FileMediaStore())
-                    auth.lifecycle = store
-                    auth.startWatchingAppleCredential()
-                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         SyncService.shared.requestSync()
@@ -6563,7 +7127,31 @@ and replace the `.task { ... }` modifier from Task 5 Step 7 with:
                 }
 ```
 
-`scenePhase` is the one `.onChange` left, and it is safe: it starts a debounced sync and asks Apple about the credential, neither of which depends on ordering against anything else.
+`scenePhase` is the one `.onChange` in the whole auth and sync path, and it is safe: it starts a debounced sync and asks Apple about the credential, neither of which depends on ordering against anything else. There is no `.task` here; Task 5 Step 7 deliberately left the app-level content with none.
+
+In `App/Views/Auth/RootView.swift`, extend the `.task` from Task 5 Step 5, keeping its order, from
+```swift
+        .task {
+            auth.lifecycle = store
+            auth.startWatchingAppleCredential()
+            await auth.restoreSession()
+        }
+```
+to
+```swift
+        .task {
+            // Bottom up: sync is attached to the store, the store is attached to auth, and only
+            // then does the session restore run. `restoreSession()` can decide store ownership on
+            // its first line, and that decision needs a lifecycle that can already answer
+            // `storeIsEmpty()`, cancel a sync and wipe. All four statements are in one function
+            // precisely so no SwiftUI ordering rule has to be assumed.
+            store.sync = SyncService.shared
+            SyncService.shared.attach(container: store.container, mediaStore: FileMediaStore())
+            auth.lifecycle = store
+            auth.startWatchingAppleCredential()
+            await auth.restoreSession()
+        }
+```
 
 - [ ] **Step 7: Show sync and account deletion in Settings**
 
@@ -6686,43 +7274,236 @@ and add this method after `delete(_:)`:
 
 - [ ] **Step 9: Stamp updatedAt at every voice mutation site**
 
-In `App/Views/Voice/RecordView.swift`, inside `finish()`, change
+Every block below was re-derived from the tree at `a9de821`, after Plan B's fix wave. v2's blocks were written against `090cdc4` and no longer match: `RecordingDeleter` and `VoiceTagRenamer` did not exist, `ManageVoiceTagsView` had a different shape, and `RecordView`, `AskView` and `RecordingDetailView` have all changed. Read the file before each edit.
+
+Two of these sites are not views at all. Deleting a recording now goes through `RecordingDeleter`, and renaming a tag through `VoiceTagRenamer`, so the tombstone and the `updatedAt` stamps belong there: a caller that forgets them is a bug the helper can prevent, and both helpers already have every value the sync side needs.
+
+**`App/Voice/RecordingDeleter.swift`** is where a recording's tombstone is written, because every delete in the app goes through it. Replace the whole body of `delete(_:context:mediaStore:)`:
 ```swift
-                let recording = VoiceRecording(audioFilename: filename, durationS: elapsed, animal: animal)
+    @MainActor
+    static func delete(_ recording: VoiceRecording, context: ModelContext, mediaStore: MediaStore) throws {
+        // Captured up front: the filename is unreadable off a model once it is deleted.
+        let filename = recording.audioFilename
+        context.delete(recording)
+        try context.save()
+        mediaStore.delete(filename)
+    }
+```
+with:
+```swift
+    @MainActor
+    static func delete(_ recording: VoiceRecording, context: ModelContext, mediaStore: MediaStore) throws {
+        // Captured up front: the filename is unreadable off a model once it is deleted.
+        let filename = recording.audioFilename
+        // Written before the delete, for the same reason: the tombstone reads the audio filename and
+        // the vocalization ids off the record, and after `context.delete` there is no record. This is
+        // the one place every recording delete in the app passes through, so it is the one place the
+        // tombstone has to be written.
+        Tombstone.recordRecording(recording, in: context)
+        context.delete(recording)
+        try context.save()
+        mediaStore.delete(filename)
+        SyncService.shared.requestSync()
+    }
+```
+The tombstone is saved by the same `try context.save()` that commits the delete, so a failed save leaves neither the delete nor the tombstone, which is exactly the property the file's own comment is about.
+
+**`App/Voice/VoiceTagRenamer.swift`** rewrites labels on rows sync has to push, so every row it touches needs its `updatedAt` moved. Replace the body of `rename(tag:to:context:)` from `tag.name = name` down to `try context.save()`:
+```swift
+        tag.name = name
+        switch tag.kind {
+        case .activity:
+            for r in try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.activityTag == old })) {
+                r.activityTag = name
+            }
+            for v in try context.fetch(FetchDescriptor<Vocalization>(predicate: #Predicate { $0.activityTag == old })) {
+                v.activityTag = name
+            }
+        case .meaning:
+            for r in try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.meaningTag == old })) {
+                r.meaningTag = name
+            }
+            for v in try context.fetch(FetchDescriptor<Vocalization>(predicate: #Predicate { $0.meaningTag == old })) {
+                v.meaningTag = name
+            }
+        }
+        try context.save()
+```
+with:
+```swift
+        // One timestamp for the whole rename, so the tag and every label it migrated are one edit as
+        // far as last-write-wins is concerned. Without these stamps the labels change locally and
+        // never push, and a second device keeps showing the old name forever.
+        let now = Date()
+        tag.name = name
+        tag.updatedAt = now
+        switch tag.kind {
+        case .activity:
+            for r in try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.activityTag == old })) {
+                r.activityTag = name
+                r.updatedAt = now
+            }
+            for v in try context.fetch(FetchDescriptor<Vocalization>(predicate: #Predicate { $0.activityTag == old })) {
+                v.activityTag = name
+                v.updatedAt = now
+            }
+        case .meaning:
+            for r in try context.fetch(FetchDescriptor<VoiceRecording>(predicate: #Predicate { $0.meaningTag == old })) {
+                r.meaningTag = name
+                r.updatedAt = now
+            }
+            for v in try context.fetch(FetchDescriptor<Vocalization>(predicate: #Predicate { $0.meaningTag == old })) {
+                v.meaningTag = name
+                v.updatedAt = now
+            }
+        }
+        try context.save()
+        SyncService.shared.requestSync()
+```
+
+**`App/Voice/AnalysisService.swift`** replaces a recording's sounds, which is a delete the server has to hear about. Replace `apply(_:to:context:)` (the `guard` on line 29 stays, and stays first):
+```swift
+    @MainActor
+    static func apply(_ result: Result, to recording: VoiceRecording, context: ModelContext) throws {
+        guard recording.modelContext != nil else { return }
+        for old in recording.vocalizations ?? [] { context.delete(old) }
+        for event in result.events {
+            let v = Vocalization(segment: event.segment, features: event.features)
+            v.recording = recording
+            context.insert(v)
+        }
+        recording.durationS = result.durationS
+        recording.status = result.events.isEmpty ? .noSounds : .analyzed
+        recording.errorMessage = nil
+        TagPropagation.apply(to: recording)
+        try context.save()
+    }
+```
+with:
+```swift
+    @MainActor
+    static func apply(_ result: Result, to recording: VoiceRecording, context: ModelContext) throws {
+        // Still first, and still a plain return: a recording deleted while the analysis ran has
+        // already had its tombstones written by RecordingDeleter, and writing anything onto it here
+        // would resurrect a row the store has dropped.
+        guard recording.modelContext != nil else { return }
+        let now = Date()
+        for old in recording.vocalizations ?? [] {
+            // Re-analysis is a delete like any other. Without the tombstone the old sounds stay on
+            // the server forever and come back on the next device's pull.
+            Tombstone.record(.vocalizations, id: old.id, deletedAt: now, in: context)
+            context.delete(old)
+        }
+        for event in result.events {
+            let v = Vocalization(segment: event.segment, features: event.features)
+            v.recording = recording
+            context.insert(v)
+        }
+        recording.durationS = result.durationS
+        recording.status = result.events.isEmpty ? .noSounds : .analyzed
+        recording.errorMessage = nil
+        TagPropagation.apply(to: recording)
+        recording.updatedAt = now
+        try context.save()
+    }
+```
+
+and stamp the two failure paths in `analyze(recording:mediaStore:context:)` as well, so a recording that has just been marked `.failed` is pushed rather than sitting on the device with a stale timestamp. Replace:
+```swift
+        guard mediaStore.exists(filename) else {
+            guard recording.modelContext != nil else { return }
+            recording.status = .failed
+            recording.errorMessage = AnalysisError.missingAudio(filename).localizedDescription
+            try? context.save()
+            return
+        }
+```
+with:
+```swift
+        guard mediaStore.exists(filename) else {
+            guard recording.modelContext != nil else { return }
+            recording.status = .failed
+            recording.errorMessage = AnalysisError.missingAudio(filename).localizedDescription
+            recording.updatedAt = Date()
+            try? context.save()
+            return
+        }
+```
+and replace:
+```swift
+            guard recording.modelContext != nil else { return }
+            recording.status = .failed
+            recording.errorMessage = error.localizedDescription
+            try? context.save()
+        }
+    }
+}
+```
+with:
+```swift
+            guard recording.modelContext != nil else { return }
+            recording.status = .failed
+            recording.errorMessage = error.localizedDescription
+            recording.updatedAt = Date()
+            try? context.save()
+        }
+    }
+}
+```
+`AnalysisService` does not call `requestSync()` itself: its three callers do, on the line after they call it, so one analysis is one sync request rather than three.
+
+**`App/Views/Voice/RecordView.swift`**, inside `finish()`. Note `inserted = recording` and the `guard recording.modelContext != nil` that Plan B's fix wave added; both stay. Change
+```swift
                 context.insert(recording)
+                inserted = recording
                 try context.save()
                 await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context)
+                // Deleted while the analysis ran: a tagging sheet bound to a deleted model traps.
+                guard recording.modelContext != nil else { return }
                 pendingRecording = recording
 ```
 to
 ```swift
-                let recording = VoiceRecording(audioFilename: filename, durationS: elapsed, animal: animal)
                 context.insert(recording)
+                inserted = recording
                 try context.save()
                 await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context)
-                recording.updatedAt = Date()
-                try? context.save()
+                // Deleted while the analysis ran: a tagging sheet bound to a deleted model traps.
+                guard recording.modelContext != nil else { return }
                 SyncService.shared.requestSync()
                 pendingRecording = recording
 ```
-Analysis inserts the `Vocalization` rows, and a freshly inserted model already carries `updatedAt = Date()`, so only the recording needs restamping.
+`AnalysisService.apply` stamps the recording's `updatedAt`, and a freshly inserted `Vocalization` already carries `updatedAt = Date()`, so the only thing missing here was the request.
 
-In `App/Views/Voice/TagSheet.swift`, change `addTag(_:kind:selection:)` from
+**`App/Views/Voice/TagSheet.swift`**. Change `addTag(_:kind:selection:)` from
 ```swift
-        if !tags.contains(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+        if let existing = tags.first(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            selection.wrappedValue = existing.name
+        } else {
             context.insert(VoiceTag(kind: kind, name: name, sortOrder: (tags.map(\.sortOrder).max() ?? 0) + 1))
+            selection.wrappedValue = name
         }
 ```
 to
 ```swift
-        if !tags.contains(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+        if let existing = tags.first(where: { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            selection.wrappedValue = existing.name
+        } else {
             context.insert(VoiceTag(kind: kind, name: name, sortOrder: (tags.map(\.sortOrder).max() ?? 0) + 1))
+            selection.wrappedValue = name
             SyncService.shared.requestSync()
         }
 ```
-and change `save()` from
+The existing-tag branch selects a row without changing it, so it has nothing to push.
+
+and change `save()`, keeping every line of the draft write-back, from
 ```swift
     private func save() {
+        recording.animal = animals.first { $0.id == draft.animalID }
+        recording.activityTag = draft.activityTag
+        recording.meaningTag = draft.meaningTag
+        recording.userConfidence = draft.confidence
+        recording.note = draft.note
         recording.editedAt = Date()
         TagPropagation.apply(to: recording)
         try? context.save()
@@ -6733,6 +7514,11 @@ to
 ```swift
     private func save() {
         let now = Date()
+        recording.animal = animals.first { $0.id == draft.animalID }
+        recording.activityTag = draft.activityTag
+        recording.meaningTag = draft.meaningTag
+        recording.userConfidence = draft.confidence
+        recording.note = draft.note
         recording.editedAt = now
         TagPropagation.apply(to: recording)
         recording.updatedAt = now
@@ -6743,55 +7529,37 @@ to
         dismiss()
     }
 ```
+`recording.animal = ...` goes through the computed door from Task 7, so it writes `animalID` as well; that is why the draft write-back must not be reordered or replaced.
 
-In `App/Views/Voice/VoiceHistoryView.swift`, change the `.onDelete` block from
+**`App/Views/Voice/VoiceHistoryView.swift`**, the `.onDelete` block. Nothing changes: it already routes through `RecordingDeleter`, which now writes the tombstone and requests the sync.
 ```swift
                 .onDelete { offsets in
                     for r in offsets.map({ filtered[$0] }) {
-                        mediaStore.delete(r.audioFilename)
-                        context.delete(r)
+                        try? RecordingDeleter.delete(r, context: context, mediaStore: mediaStore)
                     }
-                    try? context.save()
                 }
 ```
-to
+Confirm it still reads exactly that before moving on:
+```bash
+grep -n "RecordingDeleter.delete" App/Views/Voice/VoiceHistoryView.swift App/Views/Voice/RecordingDetailView.swift
+```
+Expected: one hit in each file.
+
+**`App/Views/Voice/RecordingDetailView.swift`**. The delete dialog keeps dismiss-before-delete and keeps routing through `RecordingDeleter`, so it is not changed either:
 ```swift
-                .onDelete { offsets in
-                    for r in offsets.map({ filtered[$0] }) {
-                        // Tombstone first: it captures the audio filename and the vocalization ids
-                        // from the record, which context.delete is about to take away.
-                        Tombstone.recordRecording(r, in: context)
-                        mediaStore.delete(r.audioFilename)
-                        context.delete(r)
-                    }
-                    try? context.save()
-                    SyncService.shared.requestSync()
+            Button("Delete", role: .destructive) {
+                player.stop()
+                // Dismiss first, then delete: a body re-evaluated after the delete would read a
+                // deleted model. The capture keeps what the delete needs once `recording` is gone.
+                let doomed = recording
+                dismiss()
+                Task { @MainActor in
+                    try? RecordingDeleter.delete(doomed, context: context, mediaStore: mediaStore)
                 }
+            }
 ```
 
-In `App/Views/Voice/RecordingDetailView.swift`, change the delete dialog body from
-```swift
-            Button("Delete", role: .destructive) {
-                player.stop()
-                mediaStore.delete(recording.audioFilename)
-                context.delete(recording)
-                try? context.save()
-                dismiss()
-            }
-```
-to
-```swift
-            Button("Delete", role: .destructive) {
-                player.stop()
-                Tombstone.recordRecording(recording, in: context)
-                mediaStore.delete(recording.audioFilename)
-                context.delete(recording)
-                try? context.save()
-                SyncService.shared.requestSync()
-                dismiss()
-            }
-```
-change the play button body from
+Change the play button body from
 ```swift
                     Button {
                         if isPlayingWhole {
@@ -6818,7 +7586,7 @@ to
                     } label: {
                         Label(isPlayingWhole ? "Stop" : "Play recording", systemImage: isPlayingWhole ? "stop.fill" : "play.fill")
                     }
-                    .disabled(MediaResolver.shared.fetching.contains(recording.id))
+                    .disabled(resolver.fetching.contains(recording.id))
 ```
 change the missing-file notice from
 ```swift
@@ -6833,16 +7601,41 @@ to
                           systemImage: "icloud.and.arrow.down").foregroundStyle(.orange)
                 }
 ```
-and add two lines at the end of `reanalyze()`'s `Task { ... }` block, after the `await AnalysisService.analyze(...)` call:
+and change `reanalyze()`, keeping the deleted-model guard Plan B's fix wave added, from
 ```swift
-            recording.updatedAt = Date()
-            try? context.save()
+    private func reanalyze() {
+        // Deleted out from under this screen: there is no row left to re-analyze.
+        guard recording.modelContext != nil else { return }
+        reanalyzing = true
+        var config = SegmenterConfig()
+        config.relativeThresholdDb = Float(thresholdDb)
+        Task {
+            await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context, segmenter: config)
+            reanalyzing = false
+        }
+    }
+```
+to
+```swift
+    private func reanalyze() {
+        // Deleted out from under this screen: there is no row left to re-analyze.
+        guard recording.modelContext != nil else { return }
+        reanalyzing = true
+        var config = SegmenterConfig()
+        config.relativeThresholdDb = Float(thresholdDb)
+        Task {
+            await AnalysisService.analyze(recording: recording, mediaStore: mediaStore, context: context, segmenter: config)
+            reanalyzing = false
+            // AnalysisService stamped updatedAt on the recording and tombstoned the sounds it
+            // replaced; this only asks for those to go out.
             SyncService.shared.requestSync()
+        }
+    }
 ```
 
-Add `@ObservedObject private var resolver = MediaResolver.shared` to `RecordingDetailView`'s properties, after `@StateObject private var player = AudioPlayer()`, so the fetching text actually refreshes.
+Add `@ObservedObject private var resolver = MediaResolver.shared` to `RecordingDetailView`'s properties, after `@StateObject private var player = AudioPlayer()` on line 10, so the fetching text actually refreshes.
 
-In `App/Views/Voice/VocalizationEditView.swift`, change the reset button from
+**`App/Views/Voice/VocalizationEditView.swift`**. Change the reset button from
 ```swift
                     Button("Reset to recording tags") {
                         TagPropagation.resetOverride(vocalization)
@@ -6875,7 +7668,7 @@ to
     }
 ```
 
-Change `VocalizationPlayButton`'s body from
+**`VocalizationPlayButton`**, which lives at the bottom of `App/Views/Voice/RecordingDetailView.swift` (line 103 at `a9de821`; confirm with `grep -rn "struct VocalizationPlayButton" App/`). Change its body from
 ```swift
             if player.playingID == vocalization.id {
                 player.stop()
@@ -6896,18 +7689,43 @@ to
                 }
             }
 ```
-Find the struct first, because Plan B may have put it in `RecordingDetailView.swift`:
-```bash
-grep -rn "struct VocalizationPlayButton" App/
-```
-Make the change wherever that prints.
 
-In `App/Views/Voice/AskView.swift`, inside `finish()`, add one line after `try context.save()`:
+**`App/Views/Voice/AskView.swift`**, two places.
+
+The correction callback, lines 57 to 61 at `a9de821`, is a real edit to a sound and was pushing nothing at all. Change
 ```swift
+                                  meanings: VoiceTagNames.names(tags, kind: .meaning), player: player) { correct in
+                        item.vocalization.meaningTag = correct
+                        item.vocalization.overridden = true
+                        try? context.save()
+                    }
+```
+to
+```swift
+                                  meanings: VoiceTagNames.names(tags, kind: .meaning), player: player) { correct in
+                        item.vocalization.meaningTag = correct
+                        item.vocalization.overridden = true
+                        item.vocalization.updatedAt = Date()
+                        try? context.save()
+                        SyncService.shared.requestSync()
+                    }
+```
+
+and in `finish()`, change
+```swift
+                await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
+                recording = newRecording
+```
+to
+```swift
+                await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
                 SyncService.shared.requestSync()
+                recording = newRecording
 ```
 
-In `App/Views/Voice/ManageVoiceTagsView.swift`, change the Add button from
+**`App/Views/Voice/ManageVoiceTagsView.swift`**, as Plan B's fix wave left it. Three edits, and only three: the rename path already goes through `VoiceTagRenamer`, which Step 9 has already taught to stamp and request.
+
+Change the Add button from
 ```swift
                         context.insert(VoiceTag(kind: newKind, name: name, sortOrder: (tags.map(\.sortOrder).max() ?? 0) + 1))
                         try? context.save()
@@ -6920,56 +7738,64 @@ to
                         SyncService.shared.requestSync()
                         newName = ""
 ```
-change the rename field from
+
+and change the delete action inside `section(_:kind:)` from
 ```swift
-                    TextField("Name", text: Binding(get: { tag.name }, set: { tag.name = $0; try? context.save() }))
+                                Button("Delete", role: .destructive) { context.delete(tag); try? context.save() }
 ```
 to
 ```swift
-                    TextField("Name", text: Binding(get: { tag.name }, set: {
-                        tag.name = $0
-                        tag.updatedAt = Date()
-                        try? context.save()
-                        SyncService.shared.requestSync()
-                    }))
+                                Button("Delete", role: .destructive) {
+                                    Tombstone.record(.voiceTags, id: tag.id, in: context)
+                                    context.delete(tag)
+                                    try? context.save()
+                                    SyncService.shared.requestSync()
+                                }
 ```
-and change the delete action from
-```swift
-                        Button("Delete", role: .destructive) { context.delete(tag); try? context.save() }
+
+The `TagRow` `TextField` is not touched: it writes nothing to the model. `TagRow.save()` calls `commit(name)`, which is `ManageVoiceTagsView.rename(_:to:)`, which calls `VoiceTagRenamer.rename(tag:to:context:)`, and that is where the stamping now lives. Confirm that chain rather than assuming it:
+```bash
+grep -n "commit(name)\|VoiceTagRenamer.rename" App/Views/Voice/ManageVoiceTagsView.swift
 ```
-to
-```swift
-                        Button("Delete", role: .destructive) {
-                            Tombstone.record(.voiceTags, id: tag.id, in: context)
-                            context.delete(tag)
-                            try? context.save()
-                            SyncService.shared.requestSync()
-                        }
-```
+Expected: one hit for each.
 
 - [ ] **Step 10: Run the tests to verify they pass**
 
 Run: `scripts/test-app.sh`
-Expected: PASS. `MediaResolverTests` four cases and `SyncServiceTests` six cases are green, and every earlier test still passes. Nothing here reaches the network: the tests build `MediaResolver()` and `SyncService(defaults:)` directly with an `InMemoryRemoteStore`, and `SyncService.shared.requestSync()` returns immediately in a test run because no remote is configured on the shared instance.
+Expected: PASS. `MediaResolverTests` four cases and `SyncServiceTests` eight cases are green, and every earlier test still passes. Nothing here reaches the network: the tests build `MediaResolver()` and `SyncService(defaults:)` directly with an `InMemoryRemoteStore`, and `SyncService.shared.requestSync()` returns immediately in a test run because no remote is configured on the shared instance.
+
+Plan B's own tests now run through the changed helpers and must still pass unchanged:
+- `RecordingDeleterTests` (2 cases) exercises `RecordingDeleter.delete`, which now also writes a tombstone. It asserts recording and vocalization counts, not `DeletedRecord` counts, so the extra rows do not disturb it.
+- `VoiceTagRenameTests` (4 cases) exercises `VoiceTagRenamer.rename`, which now also stamps `updatedAt`. `testRenamingToTheSameNameDoesNothing` still returns before the stamps, because the `guard old != name else { return }` stays above them.
+- `AnalysisServiceTests` (5 cases) exercises `AnalysisService.apply`, which now tombstones the sounds it replaces. `testApplyToADeletedRecordingIsANoOp` still passes because `guard recording.modelContext != nil` stays the first line, before any tombstone is written.
+
+If any of those three files fails, the change went in above a guard rather than below it. Put the guard back on top and re-run.
 
 - [ ] **Step 11: Check no mutation site was missed**
+
+The greps cover all of `App/` except `App/Sync`, not just `App/Views`. v2 looked at the views only, which is how `AnalysisService.apply` deleted every vocalization on a re-analysis without a tombstone for a whole revision, and `App/Voice/` now also holds `RecordingDeleter` and `VoiceTagRenamer`. `App/Sync` is excluded because that is the engine: it applies server state and writes pulled tombstones through `Tombstone.recordPulled`, which is a different rule.
 
 Run:
 ```bash
 cd /Users/asheslab/Documents/work/cat-voice
-grep -rn "context.save()" App/Views | grep -v "requestSync"
+grep -rn "context.save()" App --include=*.swift | grep -v "^App/Sync/" | grep -v "requestSync"
 ```
-Expected: every remaining line is inside a function whose next statement, or a statement a few lines later in the same function, is `SyncService.shared.requestSync()`. Inspect each hit; a save with no `requestSync()` anywhere in the same function is a missed mutation site.
+Expected: every remaining line is inside a function whose next statement, or a statement a few lines later in the same function, is `SyncService.shared.requestSync()`. Inspect each hit; a save with no `requestSync()` anywhere in the same function is a missed mutation site. `App/Persistence/VoiceTagSeed.swift` is the one legitimate exception: it inserts built-in rows with deterministic ids at launch, and the next real sync picks them up on its own watermark.
 
 ```bash
-grep -rn "context.delete(" App/Views
+grep -rn "context.delete(" App --include=*.swift | grep -v "^App/Sync/"
 ```
-Expected: every hit is preceded by a `Tombstone.record(...)` or `Tombstone.recordRecording(...)` call on the line or lines above it.
+Expected: every hit is preceded by a `Tombstone.record(...)` or `Tombstone.recordRecording(...)` call on the line or lines above it, in the same function. At `a9de821` the hits outside `App/Sync` are in `RecordingDeleter.delete`, `AnalysisService.apply`, `ManageVoiceTagsView.section(_:kind:)`, `ManageAnimalsView.delete(_:)`, `RecordView.finish` and `AskView.finish`. The last two are the only ones with no tombstone, and correctly so: they delete a row whose `try context.save()` never succeeded, so the server has never heard of it.
 
 ```bash
-grep -rn "mediaStore.delete" App/Views
+grep -rn "mediaStore.delete" App --include=*.swift | grep -v "^App/Sync/"
 ```
-Expected: every hit that deletes a recording's audio is preceded by `Tombstone.recordRecording`, so the filename reaches the tombstone before the file goes.
+Expected: every hit that deletes a recording's audio is inside `RecordingDeleter.delete`, after `Tombstone.recordRecording` has captured the filename, or is one of the two failed-save cleanups above.
+
+```bash
+grep -rn "updatedAt = " App --include=*.swift | grep -v "^App/Sync/" | wc -l
+```
+Expected: a non-zero count. Read the list once and check that every model write in a view or a service has a matching stamp; a row that changes without `updatedAt` moving is a row that never pushes, and no test in this plan can see it.
 
 - [ ] **Step 12: Commit**
 
@@ -6977,7 +7803,8 @@ Expected: every hit that deletes a recording's audio is preceded by `Tombstone.r
 cd /Users/asheslab/Documents/work/cat-voice
 git add App/Sync/SupabaseRemoteStore.swift App/Sync/SyncService.swift App/Sync/MediaResolver.swift \
         AppTests/MediaResolverTests.swift AppTests/SyncServiceTests.swift \
-        App/AnimalTrackerApp.swift App/Views
+        App/AnimalTrackerApp.swift App/Views App/Voice/RecordingDeleter.swift \
+        App/Voice/VoiceTagRenamer.swift App/Voice/AnalysisService.swift
 git commit -m "feat(sync): Supabase-backed remote store, generation-guarded sync service, sync-aware mutation sites
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -7002,7 +7829,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 scripts/test-packages.sh
 scripts/test-app.sh
 ```
-Expected: both report zero failures. Do not continue past a failure; fix it in the task that owns the file, test first.
+Expected: both report zero failures. The package suites are unchanged by this plan, so they still report 28 for `AnimalVoiceAudio` and 28 for `AnimalVoiceStats`. The app suite started this plan at 59 and this plan adds 176: `SupabasePackageLinkTests` 1, `SecretGuardTests` 6, `SupabaseConfigTests` 7, `NonceTests` 11, `SyncStateTests` 17, `KeychainSessionStorageTests` 4, `SyncCodingTests` 6, `AuthServiceTests` 18, `RootGateTests` 8, `ContainerResetTests` 4, `MigrationFileTests` 15, `SyncFieldTests` 10, `SyncRowTests` 14, `LocalStoreTests` 21, `SyncEngineTests` 22, `MediaResolverTests` 4, `SyncServiceTests` 8. So 235 in total. A different number is not automatically wrong, but reconcile it before continuing: a suite that silently lost a file is the failure mode this count exists to catch. Do not continue past a failure; fix it in the task that owns the file, test first.
 
 - [ ] **Step 2: Simulator smoke test, offline path**
 
@@ -7198,6 +8025,19 @@ Skip this step if `git merge` reported "Already up to date." and created no comm
 
 **Placeholder scan.** No "TBD", no "similar to Task N", no "add error handling", no "write tests for the above". Every code step carries the full text of the file or the exact before and after of the lines being changed. The conditional branches all carry complete replacement code rather than a description: Task 1 Step 8's signing fallback, Task 4 Step 5's `String(describing:)` correction, Task 6 Step 7's storage-ownership fallback, and Task 12 Step 5's SQLite column-name discovery. The one deliberately open item is Task 12 Step 3's third nonce option, which is not a build step at all but a decision reserved to Ash, and the plan says so rather than pretending to a fallback.
 
+**Anchor check.** Every "change from" block and every `file:line` reference was re-derived from the working tree at `a9de821`, and each was then confirmed to exist verbatim with `grep -F`. The v2 revision's anchors were written against `090cdc4` and eight of them no longer matched after Plan B's fix wave; the eight were `TagSheet.addTag`, `TagSheet.save`, the `RecordingDetailView` delete dialog, `RecordView.finish`, the three `#Predicate` sites (whose line numbers moved), and the whole of `ManageVoiceTagsView`. Files this plan touches that did not exist at `090cdc4` (`RecordingDeleter`, `VoiceTagRenamer`, `InsightsModel`, `ManageVoiceTagsView`) are gated in Global Constraints with an `ls` and `grep` precondition, so a worker who starts on an older tree is stopped rather than left to improvise. Every step that edits a file whose shape could move again also carries the `grep` that proves the shape first.
+
+**Computed constants.** No expected value in a test is a guess:
+- `1_789_819_200` for 2026-09-19T12:00:00Z and `1_750_000_000.25` for 2025-06-15T15:06:40.250Z were computed with `datetime.timestamp()` and `datetime.fromtimestamp(...).isoformat()`, and both tests carry the command that produced them. v2 carried `1_789_128_000`, which is a different day.
+- The migration counts (20 `create policy`, 21 `to authenticated`, 25 `(select auth.uid())`, 10 `with check`, 4 storage policies, 5 `foldername` comparisons, 4 of each per-table item) were counted over the migration text with `--` comment lines stripped, and Task 6 Step 5 carries the shell loop that re-derives them. `migrationSQL()` strips those lines, so the counts are over SQL and never over the prose that quotes it.
+- The key sets in `SyncRowTests` are written out column by column against the migration's `create table` statements, and Task 8 Step 5 diffs the coding keys against the SQL columns.
+- Test-case counts per file are counted, not estimated: 1, 6, 7, 11, 17, 4, 6, 18, 8, 4, 15, 10, 14, 21, 22, 4, 8, which is 176 added to the 59 the app suite already has, so 235. Task 12 Step 1 states the arithmetic so a silently dropped file is visible.
+- `VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count` is used wherever the built-in tag total is needed, rather than the literal 19, so adding a tag to Plan B's list never breaks a Plan H test.
+
+**Two tests that could not fail, removed.** v2's `testAnUnconfiguredServiceNeverSignsAnyoneIn` asserted exactly what `testUnconfiguredServiceHasNoClient` asserted and is now `testAnUnconfiguredServiceRefusesToDeleteAnAccount`, which drives `deleteAccount()` and asserts the lifecycle is untouched. v2's `testASeededTagAndAPulledTagWithTheSameIdAreOneRow` reassigned a name to the value it already held; it is now Task 9's `testAPulledBuiltInTagMergesOntoTheSeededRow`, which calls `SwiftDataLocalStore.apply(tags:)` with a `VoiceTagRow` carrying `VoiceTagSeed.builtInID(...)` and then checks that a different id under the same name is a different row.
+
+**Work this plan does not repeat.** Plan B's fix wave already shipped deterministic built-in tag ids (`VoiceTagSeed.builtInID`), a seed that runs on every launch with no UserDefaults guard, `RecordingDeleter` and `VoiceTagRenamer`. Finding 20 is therefore satisfied by the tree: Task 7 Step 6 verifies it with three greps instead of writing a `UUID.v5` extension that would collide with what is there, Task 5 Step 4 simply calls `Seeds.runAll`, and the tombstone and `updatedAt` work hooks into the two helpers rather than into each call site.
+
 **Type consistency.** Checked across tasks:
 
 - `SyncTable` raw values (`animals`, `voice_recordings`, `vocalizations`, `voice_tags`) are identical in Task 3's enum, Task 6's SQL, Tasks 9 and 10's stores and Task 11's `SupabaseRemoteStore`.
@@ -7211,6 +8051,8 @@ Skip this step if `git merge` reported "Already up to date." and created no comm
 - `Tombstone.record(_:id:deletedAt:audioFilename:in:)`, `Tombstone.recordPulled(_:id:deletedAt:in:)` and `Tombstone.recordRecording(_:in:)` are declared in Task 7 and used in Tasks 9 and 11.
 - `StoreLifecycle`'s four methods are declared in Task 4, implemented by `AppStoreLifecycle` in Task 5, and driven only from Task 4. `SyncCoordinating`'s three methods are declared in Task 5 and implemented by `SyncService` in Task 11; the names `cancelSync()`, `attach(container:mediaStore:)` and `update(for:client:)` match on both sides.
 - `AuthState` gains `.misconfigured` in Task 4 and every switch over it in Tasks 5 and 11 handles all five cases.
-- `VoiceRecording.animalLink` and `Vocalization.recordingLink` are introduced in Task 7 and written directly only in Task 9's `apply`; every other site goes through the computed `animal` and `recording`, and Task 7 updates the one `#Predicate` that can no longer reach them.
+- `VoiceRecording.animalLink` and `Vocalization.recordingLink` are introduced in Task 7 and written directly only in Task 9's `apply`; every other site goes through the computed `animal` and `recording`, and Task 7 updates all three `#Predicate`s that can no longer reach them (`AnimalDeletionPolicy.swift:11`, `PredictionService.swift:31`, `InsightsModel.swift:69`). `changedVocalizations` reads `recordingID ?? recordingLink?.id`, because the inverse on `VoiceRecording.vocalizations` can set the link without the door.
 - `SyncCancelled` is declared in Task 3, thrown in Task 10 and categorised in Task 3's `SyncStatus.category(for:)`, which Task 11 calls.
-- `SyncService.shared.requestSync()` has the same spelling at all fifteen mutation sites in Task 11.
+- `SyncService.shared.requestSync()` has the same spelling at every mutation site in Task 11: two in `AnimalFormView` and `ManageAnimalsView` each, one each in `RecordingDeleter`, `VoiceTagRenamer`, `RecordView`, `TagSheet.addTag`, `TagSheet.save`, `RecordingDetailView.reanalyze`, the `VocalizationEditView` reset button, `markOverriddenIfChanged`, the `AskView` correction callback, `AskView.finish`, and the `ManageVoiceTagsView` add and delete actions. `AnalysisService` deliberately does not call it: its three callers do, so one analysis is one request.
+- `RecordingDeleter.delete(_:context:mediaStore:)` and `VoiceTagRenamer.rename(tag:to:context:)` keep Plan B's signatures exactly; Task 11 changes their bodies only, so `VoiceHistoryView`, `RecordingDetailView` and `ManageVoiceTagsView` call them unchanged.
+- `AuthService.sessionStorageKey` is declared in Task 4, passed to `AuthOptions(storage:storageKey:)` in the same step, and removed by name in `deleteAccount()` in that same step; it appears nowhere else.
