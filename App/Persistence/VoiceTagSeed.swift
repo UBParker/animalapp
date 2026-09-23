@@ -55,8 +55,9 @@ enum VoiceTagSeed {
         return added
     }
 
-    /// App-launch entry. Runs on every launch rather than once per install: matching is by name, so
-    /// a store that already has the tags gains nothing, and a store created later still gets them.
+    /// App-launch entry. Runs on every launch rather than once per install: matching is by the
+    /// deterministic id or the name, so a store that already has the tags gains nothing, and a
+    /// store created later still gets them.
     static func run(_ context: ModelContext) {
         do {
             try seedIfNeeded(context: context)

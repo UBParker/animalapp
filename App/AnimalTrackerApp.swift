@@ -30,7 +30,8 @@ struct AnimalTrackerApp: App {
     }
 }
 
-/// One-time seeds. Later plans append their seed functions to `all`.
+/// Store seeds, run on every launch. Each one must be idempotent: a second run on a store that
+/// already holds its rows has to change nothing. Later plans append their seed functions to `all`.
 enum Seeds {
     static let all: [(ModelContext) -> Void] = [
         VoiceTagSeed.run,

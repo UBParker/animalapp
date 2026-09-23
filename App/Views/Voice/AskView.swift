@@ -104,7 +104,10 @@ struct AskView: View {
         guard let animal else { try? FileManager.default.removeItem(at: url); return }
         isAnalyzing = true
         Task {
-            defer { isAnalyzing = false }
+            defer {
+                isAnalyzing = false
+                try? FileManager.default.removeItem(at: url)
+            }
             var stored: String?
             var inserted: VoiceRecording?
             var saved = false
@@ -117,6 +120,12 @@ struct AskView: View {
                 try context.save()
                 saved = true
                 await AnalysisService.analyze(recording: newRecording, mediaStore: mediaStore, context: context)
+                // Deleted while the analysis ran: reading a deleted model's relationships traps, and
+                // there is nothing left to show results against.
+                guard newRecording.modelContext != nil else {
+                    errorMessage = "That recording was deleted before analysis finished."
+                    return
+                }
                 recording = newRecording
                 // One context for the whole batch: readiness and the leave-one-out evaluation are the
                 // same for every sound in it, and leave-one-out is the expensive half of a prediction.
@@ -134,7 +143,6 @@ struct AskView: View {
                 }
                 errorMessage = "Could not process the recording: \(error.localizedDescription)"
             }
-            try? FileManager.default.removeItem(at: url)
         }
     }
 }
