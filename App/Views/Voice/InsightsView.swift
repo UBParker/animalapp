@@ -40,6 +40,7 @@ struct InsightsView: View {
                                 .symbolSize(60)
                         }
                         .chartForegroundStyleScale(domain: summary.legendOrder, range: SeriesPalette.colors(for: summary.legendOrder))
+                        .chartSymbolScale(domain: summary.legendOrder)
                         .chartXAxisLabel("Duration (s)")
                         .chartYAxisLabel("Pitch (Hz)")
                         .chartLegend(position: .bottom)

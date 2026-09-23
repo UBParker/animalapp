@@ -20,6 +20,17 @@ final class InsightsModelTests: XCTestCase {
         XCTAssertNil(s.evaluation)
     }
 
+    func testLegendOrdersByCountBeforeName() {
+        var items: [InsightsModel.Item] = []
+        for _ in 0..<12 { items.append(item("Zoomies")) }
+        for _ in 0..<3 { items.append(item("Annoyed")) }
+        for _ in 0..<3 { items.append(item("Hungry")) }
+        let s = InsightsModel.summarize(items)
+        XCTAssertEqual(s.labelCounts, ["Zoomies": 12, "Annoyed": 3, "Hungry": 3])
+        // Count wins over name: "Zoomies" leads despite sorting last alphabetically; the 3-count tie breaks by name.
+        XCTAssertEqual(s.legendOrder, ["Zoomies", "Annoyed", "Hungry"])
+    }
+
     func testMoreThanSixMeaningsFoldIntoOther() {
         var items: [InsightsModel.Item] = []
         for (i, name) in ["A", "B", "C", "D", "E", "F", "G", "H"].enumerated() {
