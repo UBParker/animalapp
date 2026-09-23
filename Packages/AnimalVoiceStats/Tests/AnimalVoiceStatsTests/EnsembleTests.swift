@@ -19,4 +19,26 @@ final class EnsembleTests: XCTestCase {
         XCTAssertEqual(p.best?.label, "b")
         XCTAssertTrue(p.probabilities.values.allSatisfy { $0.isFinite })
     }
+
+    /// The two halves disagree on this training set, so the ensemble's number can only come from
+    /// averaging both: each half on its own lands further than the tolerance from the mean.
+    func testAveragesTwoDisagreeingClassifiers() {
+        let training =
+            [-5.0, -4, -3, -2, 2, 3, 4, 5].map { LabeledSample(features: [$0], label: "a") }
+            + [1.2, 1.25, 1.3].map { LabeledSample(features: [$0], label: "b") }
+        let query = [0.5]
+        let standardizer = Standardizer.fit(training.map(\.features))
+        let knn = KNNClassifier().predict(query: query, training: training, standardizer: standardizer)
+        let bayes = NaiveBayesClassifier().predict(query: query, training: training, standardizer: standardizer)
+        let bayesBest = bayes.sorted { $0.key < $1.key }.max { $0.value < $1.value }?.key
+        XCTAssertNotEqual(knn.best?.label, bayesBest, "the halves must disagree for this test to discriminate")
+
+        let p = Ensemble().predict(query: query, training: training)
+        for label in ["a", "b"] {
+            let mean = 0.5 * ((knn.probabilities[label] ?? 0) + (bayes[label] ?? 0))
+            XCTAssertEqual(p.probabilities[label] ?? 0, mean, accuracy: 0.05, "\(label) is the mean of the two halves")
+            XCTAssertGreaterThan(abs((knn.probabilities[label] ?? 0) - mean), 0.05, "a kNN-only ensemble would fail the check above")
+            XCTAssertGreaterThan(abs((bayes[label] ?? 0) - mean), 0.05, "a Bayes-only ensemble would fail the check above")
+        }
+    }
 }

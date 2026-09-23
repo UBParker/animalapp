@@ -1,7 +1,7 @@
 import Accelerate
 import Foundation
 
-public struct SegmenterConfig: Equatable {
+public struct SegmenterConfig: Equatable, Sendable {
     public var frameSeconds: Double = 0.04
     public var hopSeconds: Double = 0.02
     public var relativeThresholdDb: Float = 20
@@ -12,7 +12,7 @@ public struct SegmenterConfig: Equatable {
     public init() {}
 }
 
-public struct Segment: Equatable, Codable {
+public struct Segment: Equatable, Codable, Sendable {
     public var startS: Double
     public var endS: Double
 

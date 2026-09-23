@@ -1,7 +1,7 @@
 import Accelerate
 import Foundation
 
-public struct SpectralConfig: Equatable {
+public struct SpectralConfig: Equatable, Sendable {
     public var fftSize = 1024
     public var hop = 320
     public var melBands = 26

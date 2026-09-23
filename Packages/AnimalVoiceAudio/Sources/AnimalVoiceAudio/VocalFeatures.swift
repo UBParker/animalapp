@@ -1,14 +1,18 @@
 import Foundation
 
 /// Acoustic features of one vocalization. Optional f0 fields are nil when fewer than 3 frames were voiced.
-public struct VocalFeatures: Codable, Equatable {
+///
+/// The f0 statistics ignore voiced frames more than an octave from the median voiced f0
+/// (octave-error rejection); `voicedFraction` counts all voiced frames.
+public struct VocalFeatures: Codable, Equatable, Sendable {
     public var durationS: Double
     public var f0Mean: Double?
     public var f0Min: Double?
     public var f0Max: Double?
     /// Linear-fit slope of f0 over time, Hz per second. Positive = rising.
     public var f0Slope: Double?
-    /// Fraction of pitch frames that were voiced (0 to 1).
+    /// Fraction of pitch frames that were voiced (0 to 1). Counts all voiced frames, including the
+    /// octave outliers the f0 statistics above drop.
     public var voicedFraction: Double
     public var rmsDb: Double
     public var spectralCentroidHz: Double

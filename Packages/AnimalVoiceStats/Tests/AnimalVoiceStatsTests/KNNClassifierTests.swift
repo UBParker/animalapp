@@ -46,4 +46,22 @@ final class KNNClassifierTests: XCTestCase {
         XCTAssertEqual(p.neighborIds.count, 3)
         XCTAssertEqual(p.probabilities.values.reduce(0, +), 1, accuracy: 1e-9)
     }
+
+    /// Distance weighting, not a head count: three "b" neighbours at distance 5 outnumber two "a"
+    /// ones at 0.1, yet the weights are 2 / 0.1 = 20 against roughly 3 / 5 = 0.6, so the answer is
+    /// "a". A plain majority vote over the same five neighbours would answer "b".
+    func testDistanceWeightingOutweighsAPlainMajority() {
+        let training = [
+            LabeledSample(features: [0.1], label: "a"),
+            LabeledSample(features: [-0.1], label: "a"),
+            LabeledSample(features: [5], label: "b"),
+            LabeledSample(features: [-5], label: "b"),
+            LabeledSample(features: [5.2], label: "b"),
+        ]
+        // Identity standardizer, so the distances above are the standardized-space distances.
+        let p = KNNClassifier(k: 5).predict(query: [0], training: training, standardizer: Standardizer(means: [0], stds: [1]))
+        XCTAssertEqual(p.neighborIds.count, 5, "all five samples are neighbours, so the vote is 3 to 2 for \"b\"")
+        XCTAssertEqual(p.best?.label, "a")
+        XCTAssertGreaterThan(p.probabilities["a"] ?? 0, 0.9)
+    }
 }

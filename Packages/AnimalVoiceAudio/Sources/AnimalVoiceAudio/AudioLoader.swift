@@ -1,9 +1,18 @@
 import AVFoundation
 import Foundation
 
-public enum AudioLoaderError: Error {
+public enum AudioLoaderError: Error, LocalizedError {
     case allocationFailed
     case conversionFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .allocationFailed:
+            return "Could not allocate an audio buffer for this recording."
+        case .conversionFailed(let reason):
+            return "Could not decode this audio file: \(reason)"
+        }
+    }
 }
 
 public enum AudioLoader {

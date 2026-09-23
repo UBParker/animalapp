@@ -1,7 +1,7 @@
 import Accelerate
 import Foundation
 
-public struct PitchConfig: Equatable {
+public struct PitchConfig: Equatable, Sendable {
     public var frameSeconds: Double = 0.04
     public var hopSeconds: Double = 0.02
     public var minHz: Double = 60
