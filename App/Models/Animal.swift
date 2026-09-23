@@ -3,7 +3,7 @@ import SwiftData
 
 @Model
 final class Animal {
-    var id: UUID = UUID()
+    @Attribute(.unique) var id: UUID = UUID()
     var createdAt: Date = Date()
     var name: String = ""
     /// Free text; see SpeciesDefaults.suggestions. Never empty after the form validates.
