@@ -64,10 +64,14 @@ struct AnimalFormView: View {
                 HStack(spacing: 16) {
                     photoPreview
                     VStack(alignment: .leading) {
+                        // Borderless: a Form row otherwise hands the whole row's taps to the first button.
                         PhotosPicker("From library", selection: $pickerItem, matching: .images)
+                            .buttonStyle(.borderless)
                         Button("Take photo") { showCamera = true }
+                            .buttonStyle(.borderless)
                         if pendingPhoto != nil || (animal?.photoFilename != nil && !removePhoto) {
                             Button("Remove photo", role: .destructive) { pendingPhoto = nil; removePhoto = true }
+                                .buttonStyle(.borderless)
                         }
                     }
                 }
@@ -160,6 +164,8 @@ struct AnimalFormView: View {
             if selectedAnimalId.isEmpty { selectedAnimalId = target.id.uuidString }
             dismiss()
         } catch {
+            // Undo the in-memory edits first: the UI must not keep showing values the store rejected.
+            context.rollback()
             // The store rejected the write, so the files we just wrote belong to nobody.
             if let savedPhoto {
                 mediaStore.delete(savedPhoto.filename)

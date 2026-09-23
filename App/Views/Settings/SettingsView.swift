@@ -18,9 +18,15 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 HStack {
-                    Button("Save key") { saveKey() }.disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    // Borderless: a Form row otherwise hands the whole row's taps to the first button.
+                    Button("Save key") { saveKey() }
+                        .buttonStyle(.borderless)
+                        .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Spacer()
-                    if hasStoredKey { Button("Remove key", role: .destructive) { removeKey() } }
+                    if hasStoredKey {
+                        Button("Remove key", role: .destructive) { removeKey() }
+                            .buttonStyle(.borderless)
+                    }
                 }
                 if let keyMessage { Text(keyMessage).font(.footnote).foregroundStyle(.secondary) }
                 Stepper("Max follow-up questions: \(questionCap)", value: $questionCap, in: 1...20)
@@ -46,7 +52,7 @@ struct SettingsView: View {
 
     private func saveKey() {
         do {
-            try KeychainStore().set(apiKeyDraft.trimmingCharacters(in: .whitespaces), account: KeychainStore.apiKeyAccount)
+            try KeychainStore().set(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines), account: KeychainStore.apiKeyAccount)
             apiKeyDraft = ""
             hasStoredKey = true
             keyMessage = "Key saved to the keychain."
