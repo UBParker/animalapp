@@ -11,10 +11,17 @@ enum MediaStoreError: Error {
     case writeFailed(String)
 }
 
-/// Where photos, videos, and audio live. Filenames are relative; the store owns the directory.
+/// Where photos, videos, and audio live. Filenames are relative single path components; the store
+/// owns the directory. A filename that fails `MediaNaming.isValid` names nothing: `exists` is false,
+/// `delete` does nothing, and `url(for:)` still resolves inside the store's directory.
 protocol MediaStore {
+    /// Returns the saved photo and its thumbnail filename.
     func savePhoto(_ data: Data) throws -> SavedPhoto
+    /// Consumes the source: on success the file at `url` has been moved into the store and no
+    /// longer exists at `url`. Pass a temporary file you own.
     func saveVideo(from url: URL) throws -> String
+    /// Consumes the source: on success the file at `url` has been moved into the store and no
+    /// longer exists at `url`. Pass a temporary file you own.
     func saveAudio(from url: URL) throws -> String
     func url(for filename: String) -> URL
     func exists(_ filename: String) -> Bool
@@ -22,6 +29,18 @@ protocol MediaStore {
 }
 
 enum MediaNaming {
+    /// True only for a single path component that cannot escape the store's directory.
+    static func isValid(_ filename: String) -> Bool {
+        guard !filename.isEmpty, filename != ".", filename != "..",
+              !filename.contains("/"), !filename.contains("\\") else { return false }
+        return (filename as NSString).lastPathComponent == filename
+    }
+
+    /// A name inside the store to stand in for one that is not a usable filename.
+    static func sanitized(_ filename: String) -> String {
+        isValid(filename) ? filename : "invalid-" + UUID().uuidString.lowercased()
+    }
+
     static func photo(_ id: UUID = UUID()) -> (photo: String, thumb: String) {
         ("\(id.uuidString.lowercased())-photo.jpg", "\(id.uuidString.lowercased())-thumb.jpg")
     }
@@ -51,28 +70,33 @@ final class InMemoryMediaStore: MediaStore {
         return SavedPhoto(filename: names.photo, thumbnailFilename: names.thumb)
     }
 
+    /// Consumes the source, like `FileMediaStore`.
     func saveVideo(from url: URL) throws -> String {
         let name = MediaNaming.video()
         files[name] = try Data(contentsOf: url)
+        try? FileManager.default.removeItem(at: url)
         return name
     }
 
+    /// Consumes the source, like `FileMediaStore`.
     func saveAudio(from url: URL) throws -> String {
         let name = MediaNaming.audio()
         files[name] = try Data(contentsOf: url)
+        try? FileManager.default.removeItem(at: url)
         return name
     }
 
     func url(for filename: String) -> URL {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let url = tempDir.appendingPathComponent(filename)
+        let url = tempDir.appendingPathComponent(MediaNaming.sanitized(filename))
         if let data = files[filename] { try? data.write(to: url) }
         return url
     }
 
-    func exists(_ filename: String) -> Bool { files[filename] != nil }
+    func exists(_ filename: String) -> Bool { MediaNaming.isValid(filename) && files[filename] != nil }
 
     func delete(_ filename: String) {
+        guard MediaNaming.isValid(filename) else { return }
         files[filename] = nil
         try? FileManager.default.removeItem(at: tempDir.appendingPathComponent(filename))
     }

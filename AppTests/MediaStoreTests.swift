@@ -21,16 +21,57 @@ final class MediaStoreTests: XCTestCase {
         XCTAssertFalse(store.exists(saved.filename))
     }
 
-    func testFileStoreCopiesVideoAndAudio() throws {
+    func testFileStoreMovesVideoAndAudioAndConsumesTheSource() throws {
         let store = FileMediaStore(root: tempRoot())
         let src = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
         try Data([0, 1, 2, 3]).write(to: src)
         let audio = try store.saveAudio(from: src)
         XCTAssertTrue(audio.hasSuffix("-audio.m4a"))
         XCTAssertEqual(try Data(contentsOf: store.url(for: audio)), Data([0, 1, 2, 3]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: src.path), "saveAudio must consume the source")
         let vsrc = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mov")
         try Data([9]).write(to: vsrc)
         XCTAssertTrue(try store.saveVideo(from: vsrc).hasSuffix("-video.mov"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vsrc.path), "saveVideo must consume the source")
+    }
+
+    func testInMemoryStoreConsumesTheSourceToo() throws {
+        let store = InMemoryMediaStore()
+        let src = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        try Data([7]).write(to: src)
+        XCTAssertTrue(try store.saveAudio(from: src).hasSuffix("-audio.m4a"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: src.path), "saveAudio must consume the source")
+        let vsrc = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mov")
+        try Data([8]).write(to: vsrc)
+        XCTAssertTrue(try store.saveVideo(from: vsrc).hasSuffix("-video.mov"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vsrc.path), "saveVideo must consume the source")
+    }
+
+    func testNamesThatAreNotASinglePathComponentAreRejected() throws {
+        for name in ["", ".", "..", "../x.jpg", "a/b.jpg", "sub\\x.jpg"] {
+            XCTAssertFalse(MediaNaming.isValid(name), "\(name) should be invalid")
+        }
+        XCTAssertTrue(MediaNaming.isValid("abc-photo.jpg"))
+
+        let root = tempRoot()
+        let store = FileMediaStore(root: root)
+        // A real file one level above the root: the store must not see it or touch it.
+        let outside = root.deletingLastPathComponent().appendingPathComponent("x.jpg")
+        try Data([1]).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+
+        XCTAssertFalse(store.exists("../x.jpg"))
+        store.delete("../x.jpg")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path), "delete escaped the store root")
+
+        let resolved = store.url(for: "../x.jpg").standardizedFileURL
+        XCTAssertEqual(resolved.deletingLastPathComponent().standardizedFileURL, root.standardizedFileURL)
+        XCTAssertTrue(resolved.lastPathComponent.hasPrefix("invalid-"))
+
+        let inMemory = InMemoryMediaStore()
+        XCTAssertFalse(inMemory.exists("../x.jpg"))
+        inMemory.delete("../x.jpg")
+        XCTAssertTrue(inMemory.url(for: "../x.jpg").lastPathComponent.hasPrefix("invalid-"))
     }
 
     func testFileStoreRejectsBadPhoto() {

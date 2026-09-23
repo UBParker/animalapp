@@ -34,23 +34,32 @@ final class FileMediaStore: MediaStore {
         return SavedPhoto(filename: names.photo, thumbnailFilename: names.thumb)
     }
 
+    /// Consumes the source: the file is copied in and then removed from its old location.
     func saveVideo(from url: URL) throws -> String {
         let name = MediaNaming.video()
-        try copy(url, to: name)
+        try consume(url, to: name)
         return name
     }
 
+    /// Consumes the source: the file is copied in and then removed from its old location.
     func saveAudio(from url: URL) throws -> String {
         let name = MediaNaming.audio()
-        try copy(url, to: name)
+        try consume(url, to: name)
         return name
     }
 
-    func url(for filename: String) -> URL { root.appendingPathComponent(filename) }
+    /// A name that is not a single path component resolves to a throwaway name inside `root`,
+    /// so a bad filename can never reach a file outside the store.
+    func url(for filename: String) -> URL { root.appendingPathComponent(MediaNaming.sanitized(filename)) }
 
-    func exists(_ filename: String) -> Bool { FileManager.default.fileExists(atPath: url(for: filename).path) }
+    func exists(_ filename: String) -> Bool {
+        MediaNaming.isValid(filename) && FileManager.default.fileExists(atPath: url(for: filename).path)
+    }
 
-    func delete(_ filename: String) { try? FileManager.default.removeItem(at: url(for: filename)) }
+    func delete(_ filename: String) {
+        guard MediaNaming.isValid(filename) else { return }
+        try? FileManager.default.removeItem(at: url(for: filename))
+    }
 
     private func write(_ data: Data, to filename: String) throws {
         do {
@@ -61,7 +70,10 @@ final class FileMediaStore: MediaStore {
         }
     }
 
-    private func copy(_ src: URL, to filename: String) throws {
+    /// Copy then remove rather than moveItem: the source is often a security-scoped or
+    /// cross-volume temp file, where a copy succeeds and a move does not.
+    private func consume(_ src: URL, to filename: String) throws {
         do { try FileManager.default.copyItem(at: src, to: url(for: filename)) } catch { throw MediaStoreError.writeFailed(error.localizedDescription) }
+        try? FileManager.default.removeItem(at: src)
     }
 }
