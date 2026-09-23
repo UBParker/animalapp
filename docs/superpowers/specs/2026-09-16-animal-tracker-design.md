@@ -223,7 +223,7 @@ Snapshot structs (`PressSnapshot`, `FeedingSnapshot`, `PoopSnapshot`, `HealthSna
 
 `ClaudeRequestBuilder.build(system, messages, schema) -> URLRequest` and `ClaudeResponseParser.parse(data) -> ClaudeResponse` (stop reason, JSON text, usage), tested against recorded fixtures.
 
-`MediaStore` protocol (file-backed implementation plus in-memory test double): `savePhoto`, `saveVideo`, `saveAudio`, `thumbnail`, `url(for:)`, `delete`. Downscaling and thumbnail generation are pure functions over image data.
+`MediaStore` protocol (file-backed implementation plus in-memory test double): `savePhoto` (returns the photo filename and the thumbnail filename it generated), `saveVideo`, `saveAudio`, `url(for:)`, `exists(_:)`, `delete`. Downscaling and thumbnail generation are pure functions over image data.
 
 ### Voice packages (already planned in detail in `docs/superpowers/plans/2026-09-15-cat-voice.md`, tasks 2 to 13)
 
