@@ -19,6 +19,8 @@ public final class Recorder: NSObject, ObservableObject {
 
     public override init() { super.init() }
 
+    deinit { timer?.invalidate() }
+
     public static let settings: [String: Any] = [
         AVFormatIDKey: kAudioFormatMPEG4AAC,
         AVSampleRateKey: 48_000.0,
@@ -54,9 +56,11 @@ public final class Recorder: NSObject, ObservableObject {
         fileURL = url
         isRecording = true
         elapsedS = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
         return url
     }
 

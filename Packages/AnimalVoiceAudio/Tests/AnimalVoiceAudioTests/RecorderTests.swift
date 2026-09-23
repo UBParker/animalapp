@@ -11,8 +11,10 @@ final class RecorderTests: XCTestCase {
         XCTAssertNil(r.stop())
     }
 
+    @MainActor
     func testSettingsAreAacMono() {
         XCTAssertEqual(Recorder.settings[AVFormatIDKey] as? UInt32, kAudioFormatMPEG4AAC)
         XCTAssertEqual(Recorder.settings[AVNumberOfChannelsKey] as? Int, 1)
+        XCTAssertEqual(Recorder.settings[AVSampleRateKey] as? Double, 48_000)
     }
 }
