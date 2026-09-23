@@ -34,7 +34,7 @@ struct SettingsView: View {
             }
             Section("Tags") {
                 SettingsPlaceholderRow(title: "Poop tags")
-                SettingsPlaceholderRow(title: "Voice tags")
+                NavigationLink("Voice tags") { ManageVoiceTagsView() }
             }
             Section("Data") {
                 SettingsPlaceholderRow(title: "Export")

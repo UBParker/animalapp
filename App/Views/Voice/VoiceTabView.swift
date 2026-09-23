@@ -25,7 +25,7 @@ struct VoiceTabView: View {
                 case .record: RecordView()
                 case .history: VoiceHistoryView()
                 case .ask: AskView()
-                case .insights: Text("Insights")
+                case .insights: InsightsView()
                 }
             }
         }
