@@ -39,10 +39,15 @@ struct AskView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            if let recording, recording.status == .failed {
+                Section { Text(recording.errorMessage ?? "Analysis failed").foregroundStyle(.red) }
+            }
             if let recording, results.isEmpty, recording.status == .noSounds {
                 Section { Text("No sounds detected in that recording.") }
             }
-            ForEach(Array(results.enumerated()), id: \.offset) { index, item in
+            // Identified by the sound, not the row index, so a new batch builds fresh AskResultViews
+            // instead of reusing the previous batch's rows along with their correction picker state.
+            ForEach(Array(results.enumerated()), id: \.element.vocalization.id) { index, item in
                 Section("Sound \(index + 1) at \(String(format: "%.1f", item.vocalization.startS)) s") {
                     AskResultView(vocalization: item.vocalization, result: item.result,
                                   meanings: VoiceTagNames.names(tags, kind: .meaning), player: player) { correct in
@@ -67,6 +72,7 @@ struct AskView: View {
     private func begin() async {
         errorMessage = nil
         results = []
+        recording = nil
         guard await Recorder.requestPermission() else { permissionDenied = true; return }
         do { try recorder.start() } catch { errorMessage = "Could not start recording: \(error)" }
     }
