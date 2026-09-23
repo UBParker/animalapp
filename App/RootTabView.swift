@@ -20,7 +20,7 @@ struct RootTabView: View {
             tab("Feed", "leaf") { Text("Feed") }
             tab("Poop", "circle.dotted") { Text("Poop") }
             tab("Health", "heart.text.square") { Text("Health") }
-            tab("Voice", "waveform") { Text("Voice") }
+            tab("Voice", "waveform") { VoiceTabView() }
         }
         .environment(\.selectedAnimal, selected)
         .onAppear { syncSelection() }
