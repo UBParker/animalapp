@@ -49,8 +49,13 @@ struct RecordingDetailView: View {
                     Text("No sounds detected. Lower the threshold below and re-analyze.").foregroundStyle(.secondary)
                 }
                 ForEach(recording.sortedVocalizations) { v in
-                    NavigationLink { VocalizationEditView(vocalization: v) } label: { VocalizationRow(vocalization: v, player: player) }
+                    HStack {
+                        VocalizationPlayButton(vocalization: v, player: player)
+                        NavigationLink { VocalizationEditView(vocalization: v) } label: { VocalizationRow(vocalization: v) }
+                    }
                 }
+                // Re-analysis deletes every vocalization, so no editor can be pushed onto one while it runs.
+                .disabled(reanalyzing)
             }
             Section("Re-analyze") {
                 VStack(alignment: .leading) {
@@ -70,10 +75,16 @@ struct RecordingDetailView: View {
         .confirmationDialog("Delete this recording and its audio file?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 player.stop()
-                mediaStore.delete(recording.audioFilename)
-                context.delete(recording)
-                try? context.save()
+                // Dismiss first, then delete: a body re-evaluated after the delete would read a
+                // deleted model. The captures keep what the delete needs once `recording` is gone.
+                let filename = recording.audioFilename
+                let doomed = recording
                 dismiss()
+                Task { @MainActor in
+                    mediaStore.delete(filename)
+                    context.delete(doomed)
+                    try? context.save()
+                }
             }
         }
         .onDisappear { player.stop() }
@@ -111,13 +122,12 @@ struct VocalizationPlayButton: View {
     }
 }
 
+/// The row's text only: the play button sits beside the row's NavigationLink so it has its own tap target.
 struct VocalizationRow: View {
     let vocalization: Vocalization
-    @ObservedObject var player: AudioPlayer
 
     var body: some View {
         HStack {
-            VocalizationPlayButton(vocalization: vocalization, player: player)
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: "at %.1f s, %.2f s long", vocalization.startS, vocalization.durationS)).font(.subheadline)
                 Text(vocalization.f0Mean.map { String(format: "pitch %.0f Hz", $0) } ?? "unvoiced").font(.caption).foregroundStyle(.secondary)

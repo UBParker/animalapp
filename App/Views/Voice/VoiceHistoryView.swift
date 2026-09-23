@@ -50,11 +50,30 @@ struct VoiceHistoryView: View {
                     try? context.save()
                 }
             }
-        }
-        .overlay {
-            if recordings.isEmpty {
-                ContentUnavailableView("No recordings yet", systemImage: "waveform", description: Text("Record from the Record section."))
+            // A section, not an overlay, so the filters above stay reachable when nothing matches.
+            if filtered.isEmpty {
+                Section {
+                    if recordings.isEmpty {
+                        ContentUnavailableView("No recordings yet", systemImage: "waveform",
+                                               description: Text("Record from the Record section."))
+                    } else {
+                        ContentUnavailableView("No recordings match these filters", systemImage: "line.3.horizontal.decrease.circle",
+                                               description: Text("Pick \"Any activity\" or \"Any meaning\" above to see them all."))
+                    }
+                }
             }
+        }
+        .onChange(of: animal?.id) { _, _ in
+            activityFilter = nil
+            meaningFilter = nil
+        }
+        // A tag edit or a delete can retire the value a filter holds; drop it rather than
+        // filter on something the pickers no longer offer.
+        .onChange(of: activities) { _, names in
+            if let f = activityFilter, !names.contains(f) { activityFilter = nil }
+        }
+        .onChange(of: meanings) { _, names in
+            if let f = meaningFilter, !names.contains(f) { meaningFilter = nil }
         }
     }
 }
