@@ -9,19 +9,46 @@ packages:
     path: Packages/AnimalVoiceAudio
   AnimalVoiceStats:
     path: Packages/AnimalVoiceStats
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.55.2
 settings:
   base:
     SWIFT_VERSION: "5.0"
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: A5S59B326M
 targets:
   AnimalTracker:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - path: App
+        excludes:
+          - Config/Supabase.plist
+      - path: App/Config/Supabase.plist
+        buildPhase: resources
+    entitlements:
+      path: App/AnimalTracker.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
+    postCompileScripts:
+      - name: Fail a Release build with no anon key
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Release" ]; then
+            KEY=$(/usr/libexec/PlistBuddy -c "Print :SupabaseAnonKey" "$SRCROOT/App/Config/Supabase.plist" 2>/dev/null || echo "")
+            case "$KEY" in
+              ""|REPLACE_WITH_ANON_KEY)
+                echo "error: Release build with no Supabase anon key in App/Config/Supabase.plist"
+                exit 1
+                ;;
+            esac
+          fi
     dependencies:
       - package: AnimalVoiceAudio
       - package: AnimalVoiceStats
+      - package: Supabase
+        product: Supabase
     info:
       path: App/Info.plist
       properties:
@@ -37,7 +64,11 @@ targets:
   AnimalTrackerTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [AppTests]
+    sources:
+      - path: AppTests
+      - path: supabase/migrations
+        buildPhase: resources
+        optional: true
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -45,6 +76,8 @@ targets:
       - target: AnimalTracker
       - package: AnimalVoiceAudio
       - package: AnimalVoiceStats
+      - package: Supabase
+        product: Supabase
 schemes:
   AnimalTracker:
     build:
