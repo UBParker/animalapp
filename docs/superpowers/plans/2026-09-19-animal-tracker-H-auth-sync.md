@@ -54,7 +54,7 @@
 - Row Level Security is enabled on every table, with select, insert, update and delete policies `to authenticated` keyed on `user_id = (select auth.uid())`, and `with check` on both insert and update.
 - Tests are XCTest, run with `scripts/test-app.sh`, and never touch the live network. Every remote interaction in a test goes through `InMemoryRemoteStore`. Every test that touches an on-disk SwiftData store passes its own temporary `url:`.
 - TDD per task: write the failing test, run it and see it fail, implement, run it and see it pass, commit.
-- Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+- Commit messages end with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 - Plan A is implemented (`AnimalTrackerApp`, `RootTabView`, `SettingsView`, `PersistenceController`, `Seeds`, `KeychainStore`, `MediaStore` with `\.mediaStore`, `ManageAnimalsView`, `AnimalFormView`). Plan B tasks 13 to 18 and the fix wave after them are implemented (`VoiceRecording`, `Vocalization`, `VoiceTag`, `VoiceTagSeed` with `builtInID`, `TagPropagation`, `AnalysisService`, `RecordingDeleter`, `VoiceTagRenamer`, `AudioPlayer`, `VoiceTabView`, `RecordView`, `TagSheet`, `VoiceHistoryView`, `RecordingDetailView`, `VocalizationEditView`, `VocalizationPlayButton`, `AskView`, `InsightsModel`, `InsightsView`, `ManageVoiceTagsView`).
 
 ---
@@ -782,7 +782,7 @@ git add project.yml App/Config/Supabase.plist App/Sync/SecretPatterns.swift \
         AppTests/SupabasePackageLinkTests.swift AppTests/SecretGuardTests.swift README.md
 git commit -m "build: link supabase-swift, commit the anon key, and guard against real secrets
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 If Step 8's fallback was used, add `App/AnimalTracker.entitlements` to the `git add` line.
@@ -951,7 +951,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 git add App/Config/SupabaseConfig.swift AppTests/SupabaseConfigTests.swift
 git commit -m "feat(config): load the Supabase project from the bundled plist, placeholder means not configured
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -1829,7 +1829,7 @@ git add App/Auth/Nonce.swift App/Auth/KeychainSessionStorage.swift App/Sync/Sync
         AppTests/SyncCodingTests.swift AppTests/KeychainSessionStorageTests.swift
 git commit -m "feat(auth): nonce with a base64url fallback, sync watermarks, store ownership, pinned keychain storage
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -2627,7 +2627,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 git add App/Auth/AuthService.swift AppTests/AuthServiceTests.swift
 git commit -m "feat(auth): AuthService drives one ordered sign-in, ownership and sign-out transition
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -3389,7 +3389,7 @@ git add App/Persistence/PersistenceController.swift App/Persistence/AppStoreLife
         App/Views/Settings/SettingsView.swift AppTests/RootGateTests.swift AppTests/ContainerResetTests.swift
 git commit -m "feat(auth): gate the tabs behind Sign in with Apple, block a Release build with no key
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -4032,7 +4032,7 @@ git add supabase/config.toml supabase/migrations/20260919120000_voice_milestone.
         AppTests/MigrationFileTests.swift README.md
 git commit -m "feat(server): voice milestone schema, server-side last-write-wins, private bucket, account deletion
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -4582,7 +4582,7 @@ git add App/Models/Animal.swift App/Models/VoiceRecording.swift App/Models/Vocal
         AppTests/SyncFieldTests.swift
 git commit -m "feat(sync): updatedAt and raw parent ids on the models, retained tombstones, deterministic tag ids
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -5191,7 +5191,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 git add App/Sync/SyncRows.swift AppTests/SyncRowTests.swift
 git commit -m "feat(sync): Codable row structs mirroring the server columns, plus the storage path
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -6414,7 +6414,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 git add App/Sync/RemoteStore.swift App/Sync/LocalStore.swift AppTests/LocalStoreTests.swift
 git commit -m "feat(sync): RemoteStore protocol with a trigger-faithful double, SwiftData local store
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -7231,7 +7231,7 @@ cd /Users/asheslab/Documents/work/cat-voice
 git add App/Sync/SyncEngine.swift AppTests/SyncEngineTests.swift
 git commit -m "feat(sync): SyncEngine with paged pulls, per-table tombstone clearing and a cancellation checkpoint
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -8586,7 +8586,7 @@ git add App/Sync/SupabaseRemoteStore.swift App/Sync/SyncService.swift App/Sync/M
         App/Voice/VoiceTagRenamer.swift App/Voice/AnalysisService.swift
 git commit -m "feat(sync): Supabase-backed remote store, generation-guarded sync service, sync-aware mutation sites
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -8817,7 +8817,7 @@ git commit --amend -m "chore: merge origin/main (LICENSE) into the voice milesto
 
 supabase-swift resolved to 2.55.x. Sign in with Apple succeeded with the <hex|base64url> nonce encoding.
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 Run both suites and the build on the merged tree:
