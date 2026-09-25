@@ -40,7 +40,9 @@
   grep -c 'isBusy' App/Views/Voice/RecordView.swift App/Views/Voice/AskView.swift
   scripts/test-app.sh | tail -3
   ```
-  Expected: all five files exist; the Settings link and `VoiceTagSeed.builtInID` print; `grep -c` prints a non-zero count for **both** voice views (4 and 4 on the tree today), which is the point of using `-c` per file rather than a `head`-truncated listing that never reaches the second file; and the app suite reports 60 tests with 0 failures (packages: 28 audio, 28 stats). If any file is missing or `builtInID` does not exist, stop: this plan builds on that work rather than repeating it.
+  Expected: all five files exist; the Settings link and `VoiceTagSeed.builtInID` print; `grep -c` prints a non-zero count for **both** voice views (4 and 4 on the tree today), which is the point of using `-c` per file rather than a `head`-truncated listing that never reaches the second file; and the app suite reports 70 tests with 0 failures (packages: 28 audio, 28 stats). If any file is missing or `builtInID` does not exist, stop: this plan builds on that work rather than repeating it.
+
+  **Task 1 is already committed** (`219ae15`, which took the suite from 60 to 70 by adding `SupabasePackageLinkTests` and nine `SecretGuardTests`). Execution resumes at Task 2. An implementer reading this precondition for any later task should expect 70 or more, not 60: the number only grows as tasks land.
 - **Do not re-create what Plan B already shipped.** `VoiceTagSeed.builtInID(kind:name:)` (UUID v5 over the RFC 4122 DNS namespace and `"kind:name"`), `VoiceTagSeed.seedIfNeeded(context:)` matching on id *and* name, `VoiceTagSeed.run(_:)` seeding on every launch with no UserDefaults guard, `RecordingDeleter.delete(_:context:mediaStore:)` and `VoiceTagRenamer.rename(tag:to:context:)` all exist. This plan calls them; it does not rewrite them. There is no `UUID.v5` extension and no `builtInNamespace` symbol in the tree, and this plan adds neither.
 - Swift 5 language mode (`SWIFT_VERSION: "5.0"` in `project.yml`), iOS deployment target 17.0.
 - The only third-party package in the app is `supabase-swift`, pinned `from: "2.55.2"` (the newest release on 2026-09-23, confirmed at https://github.com/supabase/supabase-swift/releases/tag/v2.55.2). The two local packages `AnimalVoiceAudio` and `AnimalVoiceStats` stay as they are.
@@ -290,7 +292,7 @@ Verifier A (compile-level anchors, SQL, tests):
 - `App/Sync/SyncState.swift`: `SyncTable`, `ServerFunctions`, `SyncStatus`, `SyncCancelled`, `SyncClock`, `SyncState`, `StoreOwner`, `StoreOwnerPolicy` (all UserDefaults-backed where persisted).
 - `App/Sync/SyncCoding.swift`: the ISO 8601 encoder and decoder the client itself uses.
 - `App/Sync/SecretPatterns.swift`: the Swift twin of the pre-push secret guard.
-- `App/Sync/SyncRows.swift`: `SyncCoding`, `RemoteAudioPath`, the four row structs.
+- `App/Sync/SyncRows.swift`: `RemoteAudioPath` and the four row structs.
 - `App/Sync/RemoteStore.swift`: the `RemoteStore` protocol and `InMemoryRemoteStore`.
 - `App/Sync/SupabaseRemoteStore.swift`: the PostgREST and Storage implementation.
 - `App/Sync/LocalStore.swift`: `LocalStore`, `DeletedRecordInfo`, `PendingAudioRef`, `SwiftDataLocalStore`.
@@ -328,6 +330,7 @@ Verifier A (compile-level anchors, SQL, tests):
 **Files:**
 - Modify: `project.yml` (packages, settings.base, the `AnimalTracker` target's sources, entitlements, build phase and dependencies, the `AnimalTrackerTests` target's dependencies)
 - Create: `App/Config/Supabase.plist`
+- Create: `App/Sync/SecretPatterns.swift`
 - Create: `scripts/check-secrets.sh`
 - Create: `.githooks/pre-push`
 - Create: `AppTests/SupabasePackageLinkTests.swift`
@@ -791,7 +794,7 @@ If Step 8's fallback was used, add `App/AnimalTracker.entitlements` to the `git 
 **Files:**
 - Create: `App/Config/SupabaseConfig.swift`
 - Create: `AppTests/SupabaseConfigTests.swift`
-- Modify: `project.yml` (verify the Release guard from Task 1 fires)
+- Verify, not modified: `project.yml` (the Release guard from Task 1 fires; no edit belongs to this task)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -2978,7 +2981,8 @@ final class AppStoreLifecycle: ObservableObject, StoreLifecycle {
         let opened = PersistenceController.makeContainerWithRecovery(url: storeURL)
         container = opened.container
         generation += 1
-        // `Seeds.all` runs `VoiceTagSeed.run`, which seeds on every call: Plan B's fix wave removed
+        // `Seeds.runAll` runs every entry of `Seeds.all`, including `VoiceTagSeed.run`, which
+        // seeds on every call: Plan B's fix wave removed
         // the once-per-install UserDefaults guard precisely so a store recreated after a wipe still
         // gets its built-in tags. The ids are deterministic, so a later pull of the same tags merges
         // onto these rows instead of doubling them.
@@ -3380,6 +3384,7 @@ Correction if the screenshot shows the tabs with an orange banner: the plist sti
 ```bash
 cd /Users/asheslab/Documents/work/cat-voice
 git add App/Persistence/PersistenceController.swift App/Persistence/AppStoreLifecycle.swift \
+        App/Media/MediaStore.swift App/Media/FileMediaStore.swift \
         App/Views/Auth/RootView.swift App/Views/Auth/SignInView.swift App/AnimalTrackerApp.swift \
         App/Views/Settings/SettingsView.swift AppTests/RootGateTests.swift AppTests/ContainerResetTests.swift
 git commit -m "feat(auth): gate the tabs behind Sign in with Apple, block a Release build with no key
@@ -4024,7 +4029,7 @@ Expected: `check-secrets: clean`.
 ```bash
 cd /Users/asheslab/Documents/work/cat-voice
 git add supabase/config.toml supabase/migrations/20260919120000_voice_milestone.sql \
-        AppTests/MigrationFileTests.swift README.md project.yml
+        AppTests/MigrationFileTests.swift README.md
 git commit -m "feat(server): voice milestone schema, server-side last-write-wins, private bucket, account deletion
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -4590,7 +4595,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `SyncCoding` (Task 3). Column names come from Task 6's migration.
-- Produces: `enum RemoteAudioPath { static let bucket = "voice-audio"; static func make(userID: UUID, filename: String) -> String }`; `struct AnimalRow`, `struct VoiceRecordingRow`, `struct VocalizationRow`, `struct VoiceTagRow`, each `Codable, Equatable`, each with `id`, `userID`, `createdAt`, `updatedAt`, `serverUpdatedAt: Date?`, `deletedAt: Date?` and a `static func tombstone(id: UUID, userID: UUID, deletedAt: Date) -> Self`; `protocol SyncRow` with `var id: UUID { get }`, `var updatedAt: Date { get }`, `var serverUpdatedAt: Date? { get set }`, `var deletedAt: Date? { get set }`, conformed by all four.
+- Produces: `enum RemoteAudioPath { static let bucket = "voice-audio"; static func make(userID: UUID, filename: String) -> String }`; `struct AnimalRow`, `struct VoiceRecordingRow`, `struct VocalizationRow`, `struct VoiceTagRow`, each `Codable, Equatable`, each with `id`, `userID`, `createdAt`, `updatedAt`, `serverUpdatedAt: Date?`, `deletedAt: Date?` and a `static func tombstone(id: UUID, userID: UUID, deletedAt: Date) -> Self`; `protocol SyncRow` with `var id: UUID { get }`, `var updatedAt: Date { get set }`, `var serverUpdatedAt: Date? { get set }`, `var deletedAt: Date? { get set }`, conformed by all four.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4868,7 +4873,7 @@ enum RemoteAudioPath {
 /// last changed it, where the server's pull cursor stands, and whether it is a tombstone.
 protocol SyncRow {
     var id: UUID { get }
-    var updatedAt: Date { get }
+    var updatedAt: Date { get set }
     /// Settable so `InMemoryRemoteStore` can stamp it the way the server's trigger does.
     var serverUpdatedAt: Date? { get set }
     /// Settable so `InMemoryRemoteStore` can keep it sticky the way the server's trigger does.
@@ -8507,12 +8512,14 @@ cd /Users/asheslab/Documents/work/cat-voice
 set -o pipefail
 ```
 
-**1. Every save outside the engine belongs to a file that also asks for a sync.** `VoiceTagSeed` is
-the one legitimate exception: it inserts built-in rows with deterministic ids at launch, and the
-next real sync picks them up on its own watermark.
+**1. Every save outside the engine belongs to a file that also asks for a sync.** `VoiceTagSeed` and
+`AnalysisService` are the two legitimate exceptions. `VoiceTagSeed` inserts built-in rows with
+deterministic ids at launch, and the next real sync picks them up on its own watermark.
+`AnalysisService` is forbidden by Step 9 from calling `requestSync()` at all, because each of its
+three callers requests one and a single analysis should cost a single request.
 
 ```bash
-for f in $(grep -rl "context.save()" App --include='*.swift' | grep -v '^App/Sync/' | grep -v 'VoiceTagSeed.swift'); do
+for f in $(grep -rl "context.save()" App --include='*.swift' | grep -v '^App/Sync/' | grep -v 'VoiceTagSeed.swift' | grep -v 'AnalysisService.swift'); do
   grep -q 'requestSync' "$f" || echo "MISSING requestSync: $f"
 done | tee /tmp/audit1.txt
 test "$(grep -c . /tmp/audit1.txt)" -eq 0 && echo "audit 1 OK"
@@ -8554,16 +8561,20 @@ above.
 `updatedAt` moving is a row that never pushes, and no test in this plan can see it.
 
 ```bash
-for f in $(grep -rl 'requestSync' App --include='*.swift' | grep -v '^App/Sync/'); do
+for f in $(grep -rl 'requestSync' App --include='*.swift' | grep -v '^App/Sync/' \
+           | grep -Ev 'AnimalTrackerApp|RecordingDeleter|RecordView|ManageVoiceTagsView|RecordingDetailView'); do
   grep -q 'updatedAt = ' "$f" || echo "REQUESTS SYNC BUT NEVER STAMPS: $f"
 done | tee /tmp/audit4.txt
 test "$(grep -c . /tmp/audit4.txt)" -eq 0 && echo "audit 4 OK"
 rm -f /tmp/audit1.txt /tmp/audit4.txt
 ```
-Expected: `audit 4 OK`. `App/AnimalTrackerApp.swift` is the one file that may legitimately call
-`requestSync()` without stamping anything, because its call is the scene-phase trigger rather than
-a mutation; if it appears in the output, confirm that is why and move on. Anything else in that
-list is a mutation site whose stamp was forgotten.
+Expected: `audit 4 OK`. Five files legitimately request a sync without stamping anything, and the
+loop excludes them by name: `AnimalTrackerApp` (its call is the scene-phase trigger, not a
+mutation), `RecordingDeleter` and `ManageVoiceTagsView` (a delete writes a tombstone, and a
+tombstone carries its own timestamp), `RecordView` (the stamp is the row's own `updatedAt` default
+at insert) and `RecordingDetailView` (re-analysis stamps through `AnalysisService`). Anything else
+in that list is a mutation site whose stamp was forgotten. Check the exclusion list still matches
+reality whenever one of those five gains a real edit path.
 
 - [ ] **Step 12: Commit**
 
@@ -8902,7 +8913,7 @@ it with a follow-up commit, never with `--amend` plus a force-push to the defaul
 - `RemoteAudioPath.make(userID:filename:)` returns a lowercase path in Task 8 and is used unchanged in Tasks 10 and 11, matching the `(storage.foldername(name))[1] = (select auth.uid())::text` policy in Task 6.
 - `MediaStore.write(_:as:)` is declared in Task 7 and used in Tasks 9 and 11.
 - `Tombstone.record(_:id:deletedAt:audioFilename:in:)`, `Tombstone.recordPulled(_:id:deletedAt:in:)` and `Tombstone.recordRecording(_:in:)` are declared in Task 7 and used in Tasks 9 and 11.
-- `StoreLifecycle`'s four methods are declared in Task 4, implemented by `AppStoreLifecycle` in Task 5, and driven only from Task 4. `SyncCoordinating`'s three methods are declared in Task 5 and implemented by `SyncService` in Task 11; the names `cancelSync()`, `attach(container:mediaStore:)` and `update(for:client:)` match on both sides.
+- `StoreLifecycle`'s four methods are declared in Task 4, implemented by `AppStoreLifecycle` in Task 5, and driven only from Task 4. `SyncCoordinating`'s five methods are declared in Task 5 and implemented by `SyncService` in Task 11; the names `cancelSync()`, `attach(container:mediaStore:)`, `update(for:client:)`, `pushBeforeSignOut(timeout:)` and `unsyncedRowCount()` match on both sides. The last two arrived with D-D7, the confirmed sign-out that pushes before it wipes.
 - `AuthState` gains `.misconfigured` in Task 4 and every switch over it in Tasks 5 and 11 handles all five cases.
 - `VoiceRecording.animalLink` and `Vocalization.recordingLink` are introduced in Task 7 and written directly only in Task 9's `apply`; every other site goes through the computed `animal` and `recording`, and Task 7 updates all three `#Predicate`s that can no longer reach them (`AnimalDeletionPolicy.swift:11`, `PredictionService.swift:31`, `InsightsModel.swift:69`). `changedVocalizations` reads `recordingID ?? recordingLink?.id`, because the inverse on `VoiceRecording.vocalizations` can set the link without the door.
 - `SyncCancelled` is declared in Task 3, thrown in Task 10 and categorised in Task 3's `SyncStatus.category(for:)`, which Task 11 calls.
