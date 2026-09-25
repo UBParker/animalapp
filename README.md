@@ -20,8 +20,20 @@ To install on a phone with personal signing, set `DEVELOPMENT_TEAM` in `project.
 design: it only says `role: anon`, and every table is protected by Row Level Security keyed on
 `auth.uid()`. It is committed, and there is no local-only substitution step.
 
+The real key is not in the tree yet: the plist still holds `REPLACE_WITH_ANON_KEY`. Commit 219ae15
+says "commit the anon key" in its subject, but only the placeholder landed, and that commit is not
+being rewritten. Until someone substitutes the real value, a Debug build runs in offline mode and a
+Release build refuses to compile.
+
 What must never enter the repo: the database password, a secret API key, a legacy service-role key,
 and the Supabase personal access token the CLI uses. `scripts/check-secrets.sh` matches the value
 shapes of all four and runs automatically from `.githooks/pre-push`. It matches values, not names,
 so writing the name of an environment variable in a document is fine. After a fresh clone, run
 `git config core.hooksPath .githooks` once.
+
+The hook scans the commit range it is about to push as well as the working tree, so a secret that
+was committed and then deleted in a later commit is still caught. `scripts/check-secrets.sh` takes
+the same range arguments by hand (`scripts/check-secrets.sh origin/main..HEAD`) and with no
+arguments scans the working tree only. It exits 0 clean, 1 on a finding, 2 when it could not run.
+`scripts/check-secrets-selftest.sh` proves all of that against a throwaway repository under
+`$TMPDIR`; it pushes nothing and writes no secret to disk.

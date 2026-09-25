@@ -1,3 +1,32 @@
 #!/usr/bin/env bash
-set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/scripts/check-secrets.sh"
+# git hands a pre-push hook one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# The guard has to see those commits, not just the working tree, or a secret that was committed
+# and then deleted in a later commit pushes clean.
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)" || exit 2
+
+status=0
+scanned=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  # An all-zero local sha is a deletion: there is nothing to scan.
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+  if [ -z "${remote_sha:-}" ]; then
+    remote_sha=0
+  fi
+  case "$remote_sha" in
+    # An all-zero remote sha is a new branch: scan what it carries that no other ref already has.
+    *[!0]*) range=("$remote_sha..$local_sha") ;;
+    *)      range=("$local_sha" --not --remotes) ;;
+  esac
+  "$root/scripts/check-secrets.sh" "${range[@]}" </dev/null || status=$?
+  scanned=1
+done
+
+# Run by hand, or given nothing on stdin, still scan the working tree.
+if [ "$scanned" -eq 0 ]; then
+  "$root/scripts/check-secrets.sh" </dev/null || status=$?
+fi
+
+exit "$status"

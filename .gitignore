@@ -6,4 +6,7 @@ DerivedData/
 *.xcuserstate
 .build/
 .swiftpm/
+# XcodeGen output, written from entitlements.properties in project.yml on every generate.
+# Adopting a hand-written entitlements file means deleting this line in the same commit,
+# or `git add` silently does nothing and a fresh clone gets a device build with no entitlement.
 App/AnimalTracker.entitlements
