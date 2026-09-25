@@ -6,3 +6,4 @@ DerivedData/
 *.xcuserstate
 .build/
 .swiftpm/
+App/AnimalTracker.entitlements
