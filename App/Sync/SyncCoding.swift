@@ -1,9 +1,15 @@
 import Foundation
 
-/// The JSON coding used on the wire. Task 4 passes these to `SupabaseClient` as
-/// `SupabaseClientOptions.DatabaseOptions(encoder:decoder:)`, so the row structs are encoded and
-/// decoded by exactly the coders the tests exercise, and `updated_at` keeps its sub-second part
-/// end to end rather than depending on whatever the SDK's defaults happen to be.
+/// The JSON **date** coding used on the wire. Task 4 passes these to `SupabaseClient` as
+/// `SupabaseClientOptions.DatabaseOptions(encoder:decoder:)`, so `updated_at` keeps its sub-second
+/// part end to end rather than depending on whatever the SDK's defaults happen to be.
+///
+/// Dates are all these coders handle. They set no key strategy and no UUID strategy, so a plain
+/// encode of a row would emit camelCase keys and an UPPERCASE `uuidString`. Neither is this
+/// type's problem to solve: Task 8's row structs hand-write `encode(to:)` and emit snake_case
+/// keys explicitly, and adding a key strategy here would fight that. UUID casing matters in one
+/// place, the Storage object path, where the bucket policy compares a lowercase `auth.uid()::text`
+/// against the first path segment; `RemoteAudioPath.make` lowercases for that reason.
 enum SyncCoding {
     /// What this app writes: UTC, fractional seconds, Z suffix.
     static let formatter: ISO8601DateFormatter = {

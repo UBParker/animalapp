@@ -28,6 +28,14 @@ final class SyncCodingTests: XCTestCase {
                        1_789_819_200, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00.125+00:00")).timeIntervalSince1970,
                        1_789_819_200.125, accuracy: 0.001)
+        // Genuinely non-zero offsets. Every vector above is at offset zero, so none of them can
+        // tell a parser that honours the offset in the string from one that ignores it and reads
+        // the wall-clock part as UTC. These two can: both are 12:00:00.125Z written in another
+        // zone, so a parser that dropped the offset would be two hours out and seven hours out.
+        XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T14:00:00.125+02:00")).timeIntervalSince1970,
+                       1_789_819_200.125, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T05:00:00.125-07:00")).timeIntervalSince1970,
+                       1_789_819_200.125, accuracy: 0.001)
     }
 
     func testDecoderRejectsSomethingThatIsNotADate() {
@@ -46,15 +54,24 @@ final class SyncCodingTests: XCTestCase {
         XCTAssertEqual(back.when.timeIntervalSince1970, moment.timeIntervalSince1970, accuracy: 0.001)
         XCTAssertNil(back.maybe)
     }
-
-    /// Swift's synthesized Codable uses encodeIfPresent for optionals, so a nil is omitted rather
-    /// than sent as JSON null. Pinned here because it is the reason none of Task 8's row structs
-    /// use the synthesized encoder: PostgREST refuses a bulk upsert whose objects do not all carry
-    /// the same keys (PGRST102), and omitted nils make the key set depend on the row's contents.
-    /// Task 8's rows write an explicit `encode(to:)` instead; `SyncRowTests` asserts that.
-    func testSynthesizedCodableOmitsNilWhichIsWhyRowsEncodeExplicitly() throws {
-        let data = try SyncCoding.encoder.encode(Sample(when: moment, maybe: nil))
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertFalse(json.keys.contains("maybe"))
+    /// Parsing floors to the millisecond and never rounds up, and the pull cursor's skip-safety
+    /// rests on it. The cursor is a server timestamp this app parsed and sends back as a `gte`
+    /// filter, so a floored cursor can only ever re-fetch a row, never miss one. Round to nearest
+    /// instead and a page ending at `.123600` yields a cursor of `.124`, and the unconsumed row
+    /// stamped `.123900` is excluded by the next `gte` forever, silently.
+    ///
+    /// `accuracy: 0.0001` is the point of the test. The 0.001 every other date assertion here uses
+    /// is exactly wide enough to accept a millisecond rounding change without complaining.
+    func testParsingFloorsToTheMillisecondSoTheCursorCannotSkipARow() throws {
+        XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00.123999Z")).timeIntervalSince1970,
+                       1_789_819_200.123, accuracy: 0.0001,
+                       "parsing floors; the pull cursor must never round up past an unpulled row")
+        XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-19T12:00:00.999999Z")).timeIntervalSince1970,
+                       1_789_819_200.999, accuracy: 0.0001,
+                       "and it does not carry into the next whole second either")
+        // Postgres writes microseconds. Six digits parse rather than falling through to nil, so a
+        // pull cannot fail on a real PostgREST timestamp.
+        XCTAssertEqual(try XCTUnwrap(SyncCoding.date(from: "2026-09-25T15:35:14.823456+00:00")).timeIntervalSince1970,
+                       1_790_350_514.823, accuracy: 0.0001)
     }
 }

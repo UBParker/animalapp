@@ -65,6 +65,11 @@ enum Nonce {
         guard status == errSecSuccess else { throw Failure.randomUnavailable(status) }
         var result = ""
         result.reserveCapacity(length)
+        // Uniformity is arithmetic, not luck: 256 is an exact multiple of 64, so every symbol has
+        // the same number of byte preimages and `% alphabet.count` carries no modulo bias. A
+        // precondition rather than a test, because the test would be the only thing standing
+        // between an edited alphabet and a silently biased nonce.
+        precondition(256 % alphabet.count == 0, "the alphabet must divide 256 or the nonce is biased")
         for byte in bytes { result.append(alphabet[Int(byte) % alphabet.count]) }
         return result
     }
