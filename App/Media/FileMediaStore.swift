@@ -61,6 +61,15 @@ final class FileMediaStore: MediaStore {
         try? FileManager.default.removeItem(at: url(for: filename))
     }
 
+    func removeAll() throws {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch CocoaError.fileNoSuchFile {
+            // Already gone. Recreating below is still the right end state.
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
     private func write(_ data: Data, to filename: String) throws {
         do {
             try writeHook?(filename)

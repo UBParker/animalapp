@@ -26,6 +26,9 @@ protocol MediaStore {
     func url(for filename: String) -> URL
     func exists(_ filename: String) -> Bool
     func delete(_ filename: String)
+    /// Removes every file the store holds. Used only by the whole-store wipe that runs when
+    /// ownership changes or an account is deleted; per-row deletion goes through `delete(_:)`.
+    func removeAll() throws
 }
 
 enum MediaNaming {
@@ -99,6 +102,11 @@ final class InMemoryMediaStore: MediaStore {
         guard MediaNaming.isValid(filename) else { return }
         files[filename] = nil
         try? FileManager.default.removeItem(at: tempDir.appendingPathComponent(filename))
+    }
+
+    func removeAll() throws {
+        files.removeAll()
+        try? FileManager.default.removeItem(at: tempDir)
     }
 
     /// Mirrors `FileMediaStore.write(_:to:)` so both stores save a photo the same way.

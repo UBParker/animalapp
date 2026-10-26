@@ -3,30 +3,27 @@ import SwiftUI
 
 @main
 struct AnimalTrackerApp: App {
-    let container: ModelContainer
-    /// True when the store could not be opened at all and this launch runs on a temporary store.
-    let recovered: Bool
+    @StateObject private var store: AppStoreLifecycle
+    @StateObject private var auth = AuthService()
 
     init() {
         // Never fatalError at launch: an unopenable store must still give the user a working app.
-        (container, recovered) = PersistenceController.makeContainerWithRecovery()
-        Seeds.runAll(context: container.mainContext)
+        let opened = PersistenceController.makeContainerWithRecovery()
+        Seeds.runAll(context: opened.container.mainContext)
+        _store = StateObject(wrappedValue: AppStoreLifecycle(container: opened.container,
+                                                             recovered: opened.recovered))
     }
 
     var body: some Scene {
         WindowGroup {
-            VStack(spacing: 0) {
-                if recovered {
-                    Text("The data store could not be opened. Running with a temporary store; export your data if this persists.")
-                        .font(.footnote)
-                        .padding(8)
-                        .frame(maxWidth: .infinity)
-                        .background(.yellow)
-                }
-                RootTabView()
-            }
+            // There is deliberately no `.task` here. Every piece of auth wiring lives in
+            // `RootView`'s own `.task`, immediately before `restoreSession()`, so nothing depends
+            // on the order SwiftUI happens to run a parent's task body against a child's.
+            RootView()
+                .environmentObject(auth)
+                .environmentObject(store)
+                .modelContainer(store.container)
         }
-        .modelContainer(container)
     }
 }
 

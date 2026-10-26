@@ -45,6 +45,25 @@ enum PersistenceController {
         }
     }
 
+    /// The store file and its two sidecars. Public so a test can assert a wipe left nothing.
+    static func storeURLs(url: URL? = nil) -> [URL] {
+        sidecars(of: url ?? storeURL)
+    }
+
+    /// `destroy` plus every `<name>.corrupt-<timestamp>` copy `moveAside` left behind. Sign-out and
+    /// a user change have to use this one: a recovered copy is a complete copy of the previous
+    /// person's records sitting next to the live store.
+    static func destroyIncludingRecoveredCopies(url: URL? = nil) {
+        let target = url ?? storeURL
+        destroy(url: target)
+        let directory = target.deletingLastPathComponent()
+        let base = target.lastPathComponent
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasPrefix(base) && name.contains(".corrupt-") {
+            try? FileManager.default.removeItem(at: directory.appending(path: name))
+        }
+    }
+
     /// Opens the store, and if it cannot be opened moves it aside and starts a fresh one rather
     /// than killing the app at launch. `recovered` is true only when even that fails and the app
     /// is running on a throwaway in-memory store, which is what the launch banner warns about.
