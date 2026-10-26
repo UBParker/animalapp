@@ -27,10 +27,23 @@ struct KeychainSessionStorage: AuthLocalStorage {
         }
     }
 
-    private func baseQuery(_ key: String) -> [String: Any] {
+    /// Every item under this service, whatever its account. Used by `removeAll()` and as the base
+    /// of `baseQuery`.
+    ///
+    /// `kSecAttrSynchronizable` is stated rather than left absent. Absence means "non-synchronizable"
+    /// on both a write and a search today, and `...ThisDeviceOnly` accessibility rules iCloud
+    /// keychain out anyway, but saying it makes the promise this type documents legible in the
+    /// query instead of being two inferences away.
+    private func serviceQuery() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
-         kSecAttrAccount as String: key]
+         kSecAttrSynchronizable as String: false]
+    }
+
+    private func baseQuery(_ key: String) -> [String: Any] {
+        var query = serviceQuery()
+        query[kSecAttrAccount as String] = key
+        return query
     }
 
     func store(key: String, value: Data) throws {
@@ -57,6 +70,18 @@ struct KeychainSessionStorage: AuthLocalStorage {
 
     func remove(key: String) throws {
         let status = SecItemDelete(baseQuery(key) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
+    }
+
+    /// Deletes every item this app keeps under its service, not just the session.
+    ///
+    /// Account deletion has to leave nothing behind, and the SDK writes more than one item here:
+    /// the session under `AuthOptions.storageKey`, and a PKCE code verifier under
+    /// `<storageKey>-code-verifier`
+    /// (https://github.com/supabase/supabase-swift/blob/v2.55.2/Sources/Auth/Internal/CodeVerifierStorage.swift).
+    /// Naming the keys one by one would drift as the SDK adds them; one service-wide delete cannot.
+    func removeAll() throws {
+        let status = SecItemDelete(serviceQuery() as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
     }
 

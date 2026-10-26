@@ -44,7 +44,42 @@ final class KeychainSessionStorageTests: XCTestCase {
         XCTAssertEqual(storage.accessibility(forKey: key), kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
     }
 
+    /// Account deletion has to leave nothing behind, and the SDK writes more than one item under
+    /// this service: the session under its storage key and a PKCE code verifier under
+    /// `<storageKey>-code-verifier`. One service-wide delete cannot drift as the SDK adds keys.
+    func testRemoveAllClearsEverySessionItemUnderTheService() throws {
+        try storage.store(key: AuthService.sessionStorageKey, value: Data("session".utf8))
+        try storage.store(key: AuthService.codeVerifierStorageKey, value: Data("verifier".utf8))
+
+        try storage.removeAll()
+
+        XCTAssertNil(try storage.retrieve(key: AuthService.sessionStorageKey))
+        XCTAssertNil(try storage.retrieve(key: AuthService.codeVerifierStorageKey),
+                     "the code verifier is an item too, and removing only the session key leaves it")
+    }
+
+    func testRemoveAllOnAServiceWithNothingInItIsNotAnError() {
+        XCTAssertNoThrow(try storage.removeAll())
+    }
+
+    /// One throwaway service is not touched by a sweep of another.
+    func testRemoveAllOnlyTouchesItsOwnService() throws {
+        let other = KeychainSessionStorage(service: "\(service).neighbour")
+        try other.store(key: key, value: Data("keep me".utf8))
+        defer { try? other.removeAll() }
+
+        try storage.store(key: key, value: Data("sweep me".utf8))
+        try storage.removeAll()
+
+        XCTAssertNil(try storage.retrieve(key: key))
+        XCTAssertEqual(try other.retrieve(key: key), Data("keep me".utf8))
+    }
+
+    /// Two assertions on purpose. The default init has to resolve to the pinned service, which is
+    /// what production depends on, and the string itself has to stay put: renaming it would orphan
+    /// the session item on every phone that already has one.
     func testTheServiceIsPinnedToTheApp() {
+        XCTAssertEqual(KeychainSessionStorage().service, KeychainSessionStorage.defaultService)
         XCTAssertEqual(KeychainSessionStorage.defaultService, "com.ashlab.AnimalTracker.auth")
     }
 }
