@@ -1845,7 +1845,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Produces:
   - `enum AuthState: Equatable { case unknown, signedOut, signedIn(userID: UUID, email: String?), offline, misconfigured }`.
   - `enum AuthError: Error, LocalizedError { case notConfigured, missingIdentityToken, nonceUnavailable, nonceMismatch, signOutRefused, sessionStillPresent }`.
-  - `@MainActor protocol StoreLifecycle: AnyObject { func cancelSync() async; func storeIsEmpty() -> Bool; func wipeStore() async; func configureSync(for state: AuthState, client: SupabaseClient?) }`.
+  - `@MainActor protocol StoreLifecycle: AnyObject { func cancelSync() async; func storeIsEmpty() throws -> Bool; func wipeStore() async; func configureSync(for state: AuthState, client: SupabaseClient?) }`.
   - `@MainActor final class AuthService: ObservableObject` with `init(config: SupabaseConfig? = SupabaseConfig.load(), defaults: UserDefaults = .standard, isRelease: Bool = AuthService.isReleaseBuild)`, `let client: SupabaseClient?`, `var isConfigured: Bool`, `static var isReleaseBuild: Bool`, `static let appleUserIDKey`, `static let sessionStorageKey`, `weak var lifecycle: (any StoreLifecycle)?`, `@Published private(set) var state: AuthState`, `@Published private(set) var isWorking: Bool`, `@Published var message: String?`, `func restoreSession() async`, `func beginSignIn() throws -> String`, `func abortSignIn(message: String)`, `func signInWithApple(authorization: ASAuthorization) async throws`, `func signOut() async`, `func deleteAccount() async throws`, `func leaveOfflineMode() async`, `func startWatchingAppleCredential()`, `func checkAppleCredentialState() async`, `var credentialStateProbe: (String) async -> (ASAuthorizationAppleIDProvider.CredentialState, (any Error)?)`, `func establish(userID: UUID, email: String?) async`, `static func isNonceMismatch(_ error: any Error) -> Bool`, and under `#if DEBUG` `func continueOffline()`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1869,9 +1869,17 @@ final class FakeStoreLifecycle: StoreLifecycle {
 
     var events: [Event] = []
     var isEmpty = true
+    /// Set to make `storeIsEmpty()` report "I could not tell" instead of a Bool. The protocol is
+    /// throwing so that an implementor cannot collapse that case into `true`, which would adopt a
+    /// populated store into the account signing in.
+    var emptinessIsUndeterminable = false
+    struct EmptinessUnknown: Error {}
 
     func cancelSync() async { events.append(.cancelSync) }
-    func storeIsEmpty() -> Bool { isEmpty }
+    func storeIsEmpty() throws -> Bool {
+        if emptinessIsUndeterminable { throw EmptinessUnknown() }
+        return isEmpty
+    }
     func wipeStore() async {
         events.append(.wipeStore)
         isEmpty = true
@@ -2243,7 +2251,7 @@ protocol StoreLifecycle: AnyObject {
     /// Stops any running sync and waits for it to actually stop.
     func cancelSync() async
     /// True when the store holds no user records at all.
-    func storeIsEmpty() -> Bool
+    func storeIsEmpty() throws -> Bool
     /// Destroys the store, opens a fresh one, re-seeds it and republishes it to the UI.
     func wipeStore() async
     /// Points sync at this state's user and client, or at nothing.
@@ -2369,7 +2377,7 @@ final class AuthService: ObservableObject {
         // would silently hand the previous person's data to whoever signs in next.
         let decision = StoreOwnerPolicy.decision(ownerID: owner.userID,
                                                  newUserID: userID,
-                                                 storeIsEmpty: lifecycle?.storeIsEmpty() ?? false)
+                                                 storeIsEmpty: (try? lifecycle?.storeIsEmpty()) ?? false)
         switch decision {
         case .keep:
             break
@@ -2787,7 +2795,7 @@ final class ContainerResetTests: XCTestCase {
 
         let lifecycle = AppStoreLifecycle(container: opened.container, recovered: opened.recovered,
                                           mediaStore: media, storeURL: url)
-        XCTAssertFalse(lifecycle.storeIsEmpty(), "an animal makes the store non-empty")
+        XCTAssertFalse(try lifecycle.storeIsEmpty(), "an animal makes the store non-empty")
 
         await lifecycle.wipeStore()
         retained.append(lifecycle.container)
@@ -2797,7 +2805,7 @@ final class ContainerResetTests: XCTestCase {
         XCTAssertEqual(leftInMedia, [], "the media directory is empty after a wipe, left: \(leftInMedia)")
 
         XCTAssertEqual(try lifecycle.container.mainContext.fetch(FetchDescriptor<Animal>()).count, 0)
-        XCTAssertTrue(lifecycle.storeIsEmpty())
+        XCTAssertTrue(try lifecycle.storeIsEmpty())
         XCTAssertEqual(lifecycle.generation, 1)
         let tags = try lifecycle.container.mainContext.fetch(FetchDescriptor<VoiceTag>())
         XCTAssertEqual(tags.count, VoiceTagSeed.activities.count + VoiceTagSeed.meanings.count,
@@ -2818,11 +2826,11 @@ final class ContainerResetTests: XCTestCase {
 
         let lifecycle = AppStoreLifecycle(container: opened.container, recovered: opened.recovered,
                                           mediaStore: InMemoryMediaStore(), storeURL: url)
-        XCTAssertTrue(lifecycle.storeIsEmpty())
+        XCTAssertTrue(try lifecycle.storeIsEmpty())
 
         opened.container.mainContext.insert(VoiceTag(kind: .meaning, name: "Ash's own tag"))
         try opened.container.mainContext.save()
-        XCTAssertFalse(lifecycle.storeIsEmpty(), "a tag the person added is their data")
+        XCTAssertFalse(try lifecycle.storeIsEmpty(), "a tag the person added is their data")
     }
 }
 ```
@@ -2958,12 +2966,17 @@ final class AppStoreLifecycle: ObservableObject, StoreLifecycle {
     /// "Empty" means no records the person made. The built-in voice tags are seeded on every
     /// launch, so a store holding only those is still a fresh store; counting them would make
     /// every fresh install look like data worth refusing to adopt.
-    func storeIsEmpty() -> Bool {
+    /// Throws rather than guessing. A fetch that fails must never read as "empty": the caller
+    /// turns `true` into `.claimEmpty`, which adopts the store into the account signing in, with
+    /// no wipe and no watermark reset. Four `try?` fetches would turn four failures into four
+    /// zeros into exactly that adoption, which is the inversion of the fail-closed rule the
+    /// caller is tested for. The caller collapses a throw with `(try? ...) ?? false`.
+    func storeIsEmpty() throws -> Bool {
         let context = container.mainContext
-        let animals = (try? context.fetchCount(FetchDescriptor<Animal>())) ?? 0
-        let recordings = (try? context.fetchCount(FetchDescriptor<VoiceRecording>())) ?? 0
-        let vocalizations = (try? context.fetchCount(FetchDescriptor<Vocalization>())) ?? 0
-        let ownTags = ((try? context.fetch(FetchDescriptor<VoiceTag>())) ?? []).filter { !$0.isBuiltIn }.count
+        let animals = try context.fetchCount(FetchDescriptor<Animal>())
+        let recordings = try context.fetchCount(FetchDescriptor<VoiceRecording>())
+        let vocalizations = try context.fetchCount(FetchDescriptor<Vocalization>())
+        let ownTags = try context.fetch(FetchDescriptor<VoiceTag>()).filter { !$0.isBuiltIn }.count
         return animals == 0 && recordings == 0 && vocalizations == 0 && ownTags == 0
     }
 
@@ -8919,4 +8932,4 @@ it with a follow-up commit, never with `--amend` plus a force-push to the defaul
 - `SyncCancelled` is declared in Task 3, thrown in Task 10 and categorised in Task 3's `SyncStatus.category(for:)`, which Task 11 calls.
 - `SyncService.shared.requestSync()` has the same spelling at every mutation site in Task 11: two in `AnimalFormView` and `ManageAnimalsView` each, one each in `RecordingDeleter`, `VoiceTagRenamer`, `RecordView`, `TagSheet.addTag`, `TagSheet.save`, `RecordingDetailView.reanalyze`, the `VocalizationEditView` reset button, `markOverriddenIfChanged`, the `AskView` correction callback, `AskView.finish`, and the `ManageVoiceTagsView` add and delete actions. `AnalysisService` deliberately does not call it: its three callers do, so one analysis is one request.
 - `RecordingDeleter.delete(_:context:mediaStore:)` and `VoiceTagRenamer.rename(tag:to:context:)` keep Plan B's signatures exactly; Task 11 changes their bodies only, so `VoiceHistoryView`, `RecordingDetailView` and `ManageVoiceTagsView` call them unchanged.
-- `AuthService.sessionStorageKey` is declared in Task 4, passed to `AuthOptions(storage:storageKey:)` in the same step, and removed by name in `deleteAccount()` in that same step; it appears nowhere else.
+- `AuthService.sessionStorageKey` is declared in Task 4 and passed to `AuthOptions(storage:storageKey:)` in the same step. Both destructive paths now sweep the whole service through `KeychainSessionStorage.removeAll()` rather than removing one key by name, because the SDK also writes `<storageKey>-code-verifier` and re-runs storage migrations on every read. Historically it was removed by name in `deleteAccount()` in that same step; it appears nowhere else.
