@@ -29,6 +29,9 @@ enum AuthError: Error, LocalizedError, Equatable {
     case sessionStillPresent
     case sessionSurvivedSignOut
     case accountDeletionIncomplete
+    case localDataNotCleared
+    case mediaNotCleared
+    case signOutUnfinishedAtLaunch
 
     var errorDescription: String? {
         switch self {
@@ -56,6 +59,12 @@ enum AuthError: Error, LocalizedError, Equatable {
             return "This phone signed out and your records here are gone, but a session file could not be removed. Restart the phone to finish clearing it."
         case .accountDeletionIncomplete:
             return "Your account was deleted. A session file could not be removed from this phone; restart the phone to finish clearing it."
+        case .localDataNotCleared:
+            return "This phone could not delete the records it was holding, so they are still here and still yours. It will try again before anyone signs in."
+        case .mediaNotCleared:
+            return "Your records were deleted, but some audio or photo files could not be removed from this phone. It will try again before anyone signs in."
+        case .signOutUnfinishedAtLaunch:
+            return "Signing out is not finished, so the records on this phone are still here. Tap Finish signing out to try again. Signing in is unavailable until it finishes."
         }
     }
 }
@@ -92,10 +101,23 @@ enum PendingTeardown: String {
     case accountDeleted
 
     /// What to tell the person when the retry at launch also failed.
+    ///
+    /// This lands on the sign-in screen, not in Settings, so it cannot borrow
+    /// `AuthError.sessionStillPresent`, whose copy says "You are still signed in" and was written
+    /// for a row that only appears in the `.signedIn` arm (B-F2).
     var unfinishedMessage: String? {
         switch self {
-        case .signOut: return AuthError.sessionStillPresent.errorDescription
+        case .signOut: return AuthError.signOutUnfinishedAtLaunch.errorDescription
         case .accountDeleted: return AuthError.accountDeletionIncomplete.errorDescription
+        }
+    }
+
+    /// What the sign-in screen's one action says while this teardown stands. Deliberately not an
+    /// offer to skip it: the retry is the only thing that clears the marker.
+    var retryButtonTitle: String {
+        switch self {
+        case .signOut: return "Finish signing out"
+        case .accountDeleted: return "Finish clearing this phone"
         }
     }
 }
@@ -116,7 +138,12 @@ protocol StoreLifecycle: AnyObject {
     /// and no watermark reset (RULING 4).
     func storeIsEmpty() throws -> Bool
     /// Destroys the store, opens a fresh one, re-seeds it and republishes it to the UI.
-    func wipeStore() async
+    ///
+    /// Returns what it verified rather than nothing: an unverified destroy is not a wipe, and a
+    /// caller that cannot tell the difference publishes one person's records to another person's
+    /// account (RULING 1). `.storeSurvived` means nothing was republished and nothing may be
+    /// shown; `.mediaSurvived` means the rows went and some files did not.
+    func wipeStore() async -> WipeOutcome
     /// Points sync at this state's user and client, or at nothing.
     func configureSync(for state: AuthState, client: SupabaseClient?)
 }
@@ -143,6 +170,13 @@ final class AuthService: ObservableObject {
     @Published private(set) var isSigningOut = false
     /// The one message the sign-in screen and Settings show. Never carries a server string.
     @Published var message: String?
+    /// The destructive transition this phone has started and not finished, mirrored from the
+    /// `UserDefaults` marker so the UI can read it.
+    ///
+    /// Non-nil means the app does not offer a sign-in (F2). A sign-in on top of a pending teardown
+    /// leaves the marker set, and the next launch wipes the store belonging to the account that
+    /// just signed in. Only a teardown that verified itself clears this.
+    @Published private(set) var pendingTeardown: PendingTeardown?
 
     // The three defaults and keychain names below are `nonisolated`: they are immutable strings
     // with no isolation to protect, and code outside the main actor (a test, a future background
@@ -216,6 +250,11 @@ final class AuthService: ObservableObject {
     private var pendingRawNonce: String?
     private var nonceEncoding: NonceEncoding
     private var revocationObserver: (any NSObjectProtocol)?
+    /// True while a session restore or a teardown retry is running. A14: `restoreSession()` was the
+    /// one destructive entry point with no reentrancy guard, and it reaches `wipeStore()` through
+    /// the pending-teardown retry, so two concurrent teardowns became possible the moment anything
+    /// called it twice. `signOut()` has `isSigningOut` and `deleteAccount()` has `isWorking`.
+    private var isRestoring = false
 
     init(config: SupabaseConfig? = SupabaseConfig.load(),
          defaults: UserDefaults = .standard,
@@ -225,6 +264,9 @@ final class AuthService: ObservableObject {
         self.isRelease = isRelease
         self.nonceEncoding = NonceEncoding.load(defaults: defaults)
         self.sessionStorage = sessionStorage
+        // Read at init rather than at the first restore, so nothing can offer a sign-in in the
+        // window before `restoreSession()` runs.
+        self.pendingTeardown = PendingTeardown(rawValue: defaults.string(forKey: AuthService.pendingTeardownKey) ?? "")
         // One options value, built once and kept, so "the storage the client uses" and "the
         // storage this service clears" cannot drift apart.
         //
@@ -259,16 +301,31 @@ final class AuthService: ObservableObject {
     /// genuinely absent session means signed out: a refresh that fails because the phone is on a
     /// train must not throw the person back to the sign-in screen.
     func restoreSession() async {
+        guard !isRestoring else { return }
+        isRestoring = true
+        defer { isRestoring = false }
+        // The release gate comes first, ahead of the teardown retry (B-F1). A build that shipped
+        // without an anon key cannot sign in, cannot sync and cannot push anything, so it has no
+        // business destroying a store: it shows the blocking screen and leaves the marker alone for
+        // a build that can actually honour it. The old order wiped the store and then landed on a
+        // sign-in screen that can never complete, which breaks the release-gate clause of Addendum
+        // v7.1. A DEBUG build with no client still finishes a teardown below: there is a store to
+        // wipe either way and nothing is blocked behind it.
+        if client == nil && isRelease {
+            state = .misconfigured
+            lifecycle?.configureSync(for: state, client: nil)
+            return
+        }
         // A sign-out or an account deletion the keychain refused is finished here, before any
         // session is restored. Without this the person's intent is lost on relaunch: the item is
         // still on disk, `currentSession` is non-nil, and `establish()` presents the tabs as a
         // normal session, or as a user that no longer exists server-side.
-        if let pending = PendingTeardown(rawValue: defaults.string(forKey: AuthService.pendingTeardownKey) ?? "") {
+        if let pending = pendingTeardown {
             await finishPendingTeardown(pending)
             return
         }
         guard let client else {
-            state = isRelease ? .misconfigured : .offline
+            state = .offline
             lifecycle?.configureSync(for: state, client: nil)
             return
         }
@@ -300,6 +357,18 @@ final class AuthService: ObservableObject {
     /// in the only order that is safe. Internal rather than private so the ordering is testable
     /// without a network.
     func establish(userID: UUID, email: String?) async {
+        // B-F2. A teardown the person asked for and that has not finished outranks a sign-in.
+        // Signing in over one leaves the marker set, and the next launch wipes the store belonging
+        // to the account that just signed in: data loss for a brand new sign-in. The sign-in screen
+        // does not offer the Apple button while a teardown stands; this is the second lock, on the
+        // path that would do the damage. The marker is cleared by a verified teardown and by
+        // nothing else, so there is no state where this can wedge a sign-in that should work.
+        if let pending = pendingTeardown {
+            state = .signedOut
+            message = pending.unfinishedMessage
+            lifecycle?.configureSync(for: state, client: client)
+            return
+        }
         // The three-case entry point, not the sentinel-carrying one-argument form: a record that
         // is present and unreadable is a fault, never a fresh install, and it must not reach
         // `.reset`.
@@ -323,7 +392,20 @@ final class AuthService: ObservableObject {
             syncState.save(defaults: defaults)
         case .reset:
             await lifecycle?.cancelSync()
-            await lifecycle?.wipeStore()
+            let wipe = await lifecycle?.wipeStore() ?? .wiped
+            if let failure = AuthService.unfinishedWipe(wipe) {
+                // RULING 1. The records that could not be destroyed are the previous person's.
+                // Writing the ownership claim below would adopt them into the account signing in,
+                // with the watermarks cleared, so Task 11 would push one person's animals,
+                // recordings and audio to another person's server rows. So this sign-in stops
+                // here, before the claim, and the marker makes the next launch finish the teardown
+                // before anything is established.
+                setPendingTeardown(.signOut)
+                state = .signedOut
+                message = failure.errorDescription
+                lifecycle?.configureSync(for: state, client: client)
+                return
+            }
             SyncState.clear(defaults: defaults)
         }
         // Ownership is recorded before any sync runs, so a crash mid-sync cannot leave rows in a
@@ -496,7 +578,7 @@ final class AuthService: ObservableObject {
         defer { isSigningOut = false }
         message = nil
         // Written before anything destructive, so a refusal survives a relaunch and is retried.
-        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+        setPendingTeardown(.signOut)
 
         // F1, Critical. Every writer of the session item stops before the item is removed.
         // `stopAutoRefresh()` first: the loop is on by default (`Sources/Auth/Defaults.swift:35`,
@@ -533,7 +615,7 @@ final class AuthService: ObservableObject {
             return .refused(.sessionStillPresent)
         }
 
-        await lifecycle?.wipeStore()
+        let wipe = await lifecycle?.wipeStore() ?? .wiped
 
         // `stopAutoRefresh()` is fire and forget (`Sources/Auth/AuthClient.swift:1525-1527` wraps
         // it in a detached `Task`) and it does not cancel `inFlightRefreshTask`
@@ -545,6 +627,17 @@ final class AuthService: ObservableObject {
             try clearAllSessionItems()
         } catch {
             itemCameBack = true
+        }
+
+        if wipe == .storeSurvived {
+            // RULING 1's third clause. The session is off the phone, so this phone is signed out,
+            // but the records are still here. `SyncState`, `StoreOwner` and the Apple id stay with
+            // them on purpose: clearing the owner would make the surviving store look unowned, and
+            // the marker left set here is what retries the wipe before anyone sees it.
+            state = .signedOut
+            lifecycle?.configureSync(for: state, client: client)
+            message = AuthError.localDataNotCleared.errorDescription
+            return .refused(.localDataNotCleared)
         }
 
         SyncState.clear(defaults: defaults)
@@ -562,7 +655,14 @@ final class AuthService: ObservableObject {
             message = AuthError.sessionSurvivedSignOut.errorDescription
             return .refused(.sessionSurvivedSignOut)
         }
-        defaults.removeObject(forKey: AuthService.pendingTeardownKey)
+        if wipe == .mediaSurvived {
+            // RULING 2. The rows went, so everything that pointed at them is cleared above, but
+            // audio or photos of the previous person are still in a folder the Files app can
+            // browse. Same class of failure: the marker stays set and the next launch retries.
+            message = AuthError.mediaNotCleared.errorDescription
+            return .refused(.mediaNotCleared)
+        }
+        setPendingTeardown(nil)
         if serverRefused {
             // Advice, not a failure. The token bytes are off this phone and `.local` scope never
             // touched another device, so the only residue is a refresh token the server may not
@@ -570,6 +670,24 @@ final class AuthService: ObservableObject {
             message = AuthError.signOutRefused.errorDescription
         }
         return .signedOut
+    }
+
+    /// Retries a teardown an earlier run could not finish. The sign-in screen's only action while
+    /// one stands (B-F2).
+    ///
+    /// Sign-in is unavailable until this succeeds, because a sign-in on top of a pending teardown
+    /// leaves the marker set and the next launch destroys the new account's records. Only a
+    /// teardown that verified itself clears the marker.
+    func retryPendingTeardown() async {
+        guard let pending = pendingTeardown, !isSigningOut, !isWorking, !isRestoring else { return }
+        isSigningOut = true
+        isRestoring = true
+        defer {
+            isSigningOut = false
+            isRestoring = false
+        }
+        message = nil
+        await finishPendingTeardown(pending)
     }
 
     /// Finishes a destructive transition a previous run could not complete (F3).
@@ -580,6 +698,19 @@ final class AuthService: ObservableObject {
     /// refusing, nothing is destroyed and nothing is established: the person is shown the pending
     /// state rather than being signed back in as themselves or as a deleted user.
     private func finishPendingTeardown(_ pending: PendingTeardown) async {
+        // A6. The attended path pushes before anything is destroyed, and this path destroys
+        // strictly more: a refused sign-out leaves the tabs up and the person keeps recording, and
+        // everything made between the refusal and this launch used to be destroyed here without
+        // ever being offered to the server. So the same push, with the same bound, and before
+        // `stopAutoRefresh()` and `cancelSync()`, which is the order the attended path uses
+        // because the push needs the session and a running sync. Its result is deliberately
+        // ignored: a teardown the person asked for is not deferred because the network is down.
+        //
+        // Not on the deletion path. `delete_my_account()` has already returned, so the auth user is
+        // gone and every push would 401 against rows that no longer exist.
+        if pending == .signOut {
+            _ = await finalPushBeforeSignOut?(AuthService.finalPushTimeout)
+        }
         await client?.auth.stopAutoRefresh()
         await lifecycle?.cancelSync()
         var swept = true
@@ -589,16 +720,47 @@ final class AuthService: ObservableObject {
             swept = false
         }
         if swept {
-            await lifecycle?.wipeStore()
-            SyncState.clear(defaults: defaults)
-            StoreOwner.clear(defaults: defaults)
-            defaults.removeObject(forKey: AuthService.appleUserIDKey)
-            defaults.removeObject(forKey: AuthService.pendingTeardownKey)
+            let wipe = await lifecycle?.wipeStore() ?? .wiped
+            if let failure = AuthService.unfinishedWipe(wipe) {
+                // RULINGs 1 and 2. The retry could not finish either, so the marker stays and the
+                // next launch tries again. Nothing is cleared: what says who the surviving records
+                // belong to has to survive with them.
+                message = failure.errorDescription
+            } else {
+                SyncState.clear(defaults: defaults)
+                StoreOwner.clear(defaults: defaults)
+                defaults.removeObject(forKey: AuthService.appleUserIDKey)
+                setPendingTeardown(nil)
+            }
         } else {
             message = pending.unfinishedMessage
         }
         state = .signedOut
         lifecycle?.configureSync(for: state, client: client)
+    }
+
+    /// The error that stands for a wipe that did not finish, or nil for one that verified itself.
+    ///
+    /// RULING 1 and RULING 2 treat both halves of the wipe the same way: the marker stays set so
+    /// the next launch retries, nothing is presented as clean, and the person is told which half
+    /// survived. Static and internal so the mapping is one expression and is testable.
+    static func unfinishedWipe(_ outcome: WipeOutcome) -> AuthError? {
+        switch outcome {
+        case .wiped: return nil
+        case .storeSurvived: return .localDataNotCleared
+        case .mediaSurvived: return .mediaNotCleared
+        }
+    }
+
+    /// The only writer of the pending-teardown marker, so the persisted marker and the published
+    /// flag the UI gates on cannot drift apart.
+    private func setPendingTeardown(_ pending: PendingTeardown?) {
+        if let pending {
+            defaults.set(pending.rawValue, forKey: AuthService.pendingTeardownKey)
+        } else {
+            defaults.removeObject(forKey: AuthService.pendingTeardownKey)
+        }
+        pendingTeardown = pending
     }
 
     /// Sweeps every item under this app's keychain service and proves the two it knows about are
@@ -659,49 +821,74 @@ final class AuthService: ObservableObject {
         }
         // The account is gone server-side from here on, so the local teardown has to finish even
         // across a relaunch: the marker is what stops the next launch establishing a deleted user.
-        defaults.set(PendingTeardown.accountDeleted.rawValue, forKey: AuthService.pendingTeardownKey)
+        setPendingTeardown(.accountDeleted)
         try? await client.auth.signOut(scope: .local)
-        var keychainFailure: (any Error)?
+        // Anything that makes this deletion not clean: a keychain item that would not go, or a
+        // local wipe that could not be verified. Whichever comes first is what is thrown.
+        var incomplete: (any Error)?
         do {
             try clearAllSessionItems()
         } catch {
-            keychainFailure = error
+            incomplete = error
             // Not the sign-out copy: there is no account left to sign out of, and "try signing out
             // again" would contradict the message Task 5 shows for the throw below.
             message = AuthError.accountDeletionIncomplete.errorDescription
         }
-        await lifecycle?.wipeStore()
+        let wipe = await lifecycle?.wipeStore() ?? .wiped
+        if let wipeFailure = AuthService.unfinishedWipe(wipe) {
+            // RULINGs 1 and 2, on the path whose whole promise is that nothing is left behind.
+            // This function is meticulous about the keychain and used to discard the store and
+            // media result entirely, so the two halves of one promise were held to opposite
+            // standards in the same function. A wipe that did not finish is now treated exactly
+            // like a keychain sweep that did not: the marker stays set so the next launch retries,
+            // and the deletion is not reported as clean.
+            incomplete = incomplete ?? wipeFailure
+            message = wipeFailure.errorDescription
+        }
         // The same post-wipe re-check `signOut()` does, for the same reason: `stopAutoRefresh()`
         // does not cancel a refresh already in flight, so the item can be written back after the
         // sweep was verified.
-        if keychainFailure == nil {
+        if incomplete == nil {
             do {
                 try clearAllSessionItems()
             } catch {
-                keychainFailure = error
+                incomplete = error
                 message = AuthError.accountDeletionIncomplete.errorDescription
             }
         }
         SyncState.clear(defaults: defaults)
         StoreOwner.clear(defaults: defaults)
         defaults.removeObject(forKey: AuthService.appleUserIDKey)
-        if keychainFailure == nil {
-            defaults.removeObject(forKey: AuthService.pendingTeardownKey)
+        if incomplete == nil {
+            setPendingTeardown(nil)
         }
         state = .signedOut
         lifecycle?.configureSync(for: state, client: client)
-        if let keychainFailure { throw keychainFailure }
+        if let incomplete { throw incomplete }
     }
 
     /// Leaves DEBUG offline mode. The offline data is discarded: nobody owns it, and adopting it
     /// into the next account is exactly what `StoreOwnerPolicy` refuses to do.
     func leaveOfflineMode() async {
         await lifecycle?.cancelSync()
-        await lifecycle?.wipeStore()
+        let wipe = await lifecycle?.wipeStore() ?? .wiped
+        if wipe == .storeSurvived {
+            // The offline records are still here, and offering a sign-in over them is exactly the
+            // adoption `StoreOwnerPolicy` refuses to do. Nothing was lost, so this stays offline
+            // mode and says why, rather than moving to a screen whose premise is false.
+            message = AuthError.localDataNotCleared.errorDescription
+            lifecycle?.configureSync(for: state, client: client)
+            return
+        }
         SyncState.clear(defaults: defaults)
         StoreOwner.clear(defaults: defaults)
         state = .signedOut
         lifecycle?.configureSync(for: state, client: client)
+        if wipe == .mediaSurvived {
+            // The rows did go, so this is signed out, but files of the offline session are still
+            // on the phone and nothing owns them any more.
+            message = AuthError.mediaNotCleared.errorDescription
+        }
     }
 
     #if DEBUG

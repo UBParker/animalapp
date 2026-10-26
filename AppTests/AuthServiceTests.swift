@@ -20,6 +20,9 @@ final class FakeStoreLifecycle: StoreLifecycle {
 
     var events: [Event] = []
     var isEmpty = true
+    /// What `wipeStore()` reports. RULING 1 made the wipe answer whether it verified itself, so a
+    /// caller can no longer carry on as though an unverified destroy had worked.
+    var wipeOutcome: WipeOutcome = .wiped
 
     /// Run inside `cancelSync()` and inside `wipeStore()`, before the event is recorded. They are
     /// what lets a test see the world *at the moment* a step runs rather than after the whole
@@ -48,10 +51,12 @@ final class FakeStoreLifecycle: StoreLifecycle {
         if emptinessIsUndeterminable { throw EmptinessUnknown() }
         return isEmpty
     }
-    func wipeStore() async {
+    func wipeStore() async -> WipeOutcome {
         await onWipeStore?()
         events.append(.wipeStore)
+        if wipeOutcome == .storeSurvived { return wipeOutcome }
         isEmpty = true
+        return wipeOutcome
     }
     func configureSync(for state: AuthState, client: SupabaseClient?) {
         if let defaults = defaultsForOwnerLookup {
@@ -664,7 +669,7 @@ final class AuthServiceTests: XCTestCase {
 
     /// A retry that fails again changes nothing and keeps the marker, and it must still refuse to
     /// establish: a store whose session the keychain will not release is not a session to restore.
-    func testASignOutRetryThatFailsAgainKeepsTheMarkerAndRefusesToEstablish() async {
+    func testASignOutRetryThatFailsAgainKeepsTheMarkerAndRefusesToEstablish() async throws {
         StoreOwner(userID: userA.uuidString.lowercased(), claimedAt: Date()).save(defaults: defaults)
         defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
 
@@ -676,7 +681,11 @@ final class AuthServiceTests: XCTestCase {
         await auth.restoreSession()
 
         XCTAssertEqual(auth.state, .signedOut, "not signed back in")
-        XCTAssertEqual(auth.message, AnimalTracker.AuthError.sessionStillPresent.errorDescription)
+        // F2: not the `.sessionStillPresent` copy any more. That one says "You are still signed
+        // in", and this message is rendered on the sign-in screen, which exists because they are
+        // not. The launch retry has its own words.
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.signOutUnfinishedAtLaunch.errorDescription)
+        XCTAssertFalse(try XCTUnwrap(auth.message).contains("still signed in"))
         XCTAssertFalse(lifecycle.events.contains(.wipeStore), "nothing is destroyed while the item is still there")
         XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
                        PendingTeardown.signOut.rawValue, "the retry survives another launch")
@@ -727,6 +736,228 @@ final class AuthServiceTests: XCTestCase {
         XCTAssertEqual(auth.state, .signedOut)
         XCTAssertTrue(lifecycle.events.contains(.wipeStore))
         XCTAssertNil(StoreOwner.load(defaults: defaults).userID)
+    }
+
+    // MARK: a wipe that could not be verified
+
+    /// A1, Critical, at the service level. A reset that could not be verified leaves the previous
+    /// person's animals, recordings and audio on the phone. Claiming ownership for the person
+    /// signing in would adopt them into that account, with no watermarks, so Task 11 would push
+    /// them to the wrong server rows.
+    func testASignInWhoseResetCouldNotBeVerifiedNeverReachesSignedIn() async {
+        StoreOwner(userID: userA.uuidString.lowercased(), claimedAt: Date()).save(defaults: defaults)
+        lifecycle.isEmpty = false
+        lifecycle.wipeOutcome = .storeSurvived
+
+        let auth = makeService()
+        await auth.establish(userID: userB, email: nil)
+
+        XCTAssertEqual(auth.state, .signedOut, "never signed in over records that are still there")
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.localDataNotCleared.errorDescription)
+        XCTAssertEqual(StoreOwner.load(defaults: defaults).userID, userA.uuidString.lowercased(),
+                       "the claim stays with the person whose records are still on the phone")
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue,
+                       "and the next launch finishes the teardown before anything is established")
+        XCTAssertEqual(auth.pendingTeardown, .signOut)
+    }
+
+    /// RULING 1's third clause: `signOut()` must stop clearing the marker on the strength of a
+    /// wipe it never verified. The marker is the only thing that retries it.
+    func testASignOutWhoseWipeCouldNotBeVerifiedKeepsTheMarkerAndSaysSo() async {
+        StoreOwner(userID: userA.uuidString.lowercased(), claimedAt: Date()).save(defaults: defaults)
+        lifecycle.wipeOutcome = .storeSurvived
+
+        let auth = makeService()
+        let outcome = await auth.signOut()
+
+        XCTAssertEqual(outcome, .refused(.localDataNotCleared))
+        XCTAssertEqual(auth.state, .signedOut, "the session is gone, so this phone is signed out")
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.localDataNotCleared.errorDescription)
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue)
+        XCTAssertEqual(StoreOwner.load(defaults: defaults).userID, userA.uuidString.lowercased(),
+                       "the records are still here, so the record of whose they are stays with them")
+    }
+
+    /// RULING 2. The media half of the promise is verified too, and a leftover is the same class
+    /// of failure: the marker stays set and the app is not presented as clean.
+    func testASignOutThatLeftMediaBehindIsReportedAndKeepsTheMarker() async {
+        lifecycle.wipeOutcome = .mediaSurvived
+
+        let auth = makeService()
+        let outcome = await auth.signOut()
+
+        XCTAssertEqual(outcome, .refused(.mediaNotCleared))
+        XCTAssertEqual(auth.state, .signedOut)
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue)
+        XCTAssertNil(StoreOwner.load(defaults: defaults).userID,
+                     "the store itself did go, so the ids that pointed at it go with it")
+    }
+
+    /// And the launch retry holds the same line: an unverified wipe does not clear the marker.
+    func testATeardownRetryWhoseWipeCannotBeVerifiedKeepsTheMarker() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+        lifecycle.wipeOutcome = .storeSurvived
+
+        let auth = makeService()
+        await auth.restoreSession()
+
+        XCTAssertEqual(auth.state, .signedOut)
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.localDataNotCleared.errorDescription)
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue, "the retry survives another launch")
+    }
+
+    /// Leaving offline mode discards data nobody owns. A wipe it cannot verify means that data is
+    /// still there, so it stays offline mode rather than offering a sign-in that would adopt it.
+    func testLeavingOfflineModeWithAnUnverifiedWipeStaysOffline() async {
+        lifecycle.wipeOutcome = .storeSurvived
+        let auth = makeService()
+        auth.continueOffline()
+
+        await auth.leaveOfflineMode()
+
+        XCTAssertEqual(auth.state, .offline, "nothing was adopted and nothing was lost")
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.localDataNotCleared.errorDescription)
+    }
+
+    // MARK: the release gate, and a sign-in over a pending teardown
+
+    /// B-F1, HIGH. `restoreSession()` checked the marker before it checked for a client, so a
+    /// keyless Release build that inherited a marker from a keyed build wiped the store and landed
+    /// on a sign-in screen it can never complete, instead of the blocking screen Addendum v7.1
+    /// requires. The release gate goes first.
+    func testAKeylessReleaseBuildWithAPendingTeardownIsBlockedAndWipesNothing() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+
+        let auth = makeService(isRelease: true)
+        await auth.restoreSession()
+
+        XCTAssertEqual(auth.state, .misconfigured, "the release gate outranks the retry")
+        XCTAssertFalse(lifecycle.events.contains(.wipeStore), "and that path destroys nothing")
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue,
+                       "the marker waits for a build that can actually honour it")
+    }
+
+    /// A DEBUG build can honour a teardown without a client: there is a store to wipe either way.
+    func testAKeylessDebugBuildStillFinishesAPendingTeardown() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+
+        let auth = makeService()
+        await auth.restoreSession()
+
+        XCTAssertTrue(lifecycle.events.contains(.wipeStore))
+        XCTAssertNil(auth.pendingTeardown)
+    }
+
+    /// B-F2, HIGH. A sign-in on top of a pending teardown leaves the marker set, and the next
+    /// launch wipes the store belonging to the account that just signed in. That is data loss for
+    /// a brand new sign-in, so the sign-in is refused rather than queued.
+    func testASignInOverAPendingTeardownIsRefusedRatherThanLeavingTheMarkerSet() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+
+        let auth = makeService()
+        await auth.establish(userID: userA, email: nil)
+
+        XCTAssertEqual(auth.state, .signedOut)
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.signOutUnfinishedAtLaunch.errorDescription)
+        XCTAssertNil(StoreOwner.load(defaults: defaults).userID, "no claim is written over a pending wipe")
+        XCTAssertEqual(defaults.string(forKey: AuthService.pendingTeardownKey),
+                       PendingTeardown.signOut.rawValue)
+        XCTAssertFalse(lifecycle.events.contains(.wipeStore), "establish does not do the teardown's job")
+    }
+
+    /// Only a verified-complete teardown clears the marker, and that is what unlocks sign-in.
+    func testRetryingAPendingTeardownClearsTheMarkerAndUnlocksSignIn() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+
+        let auth = makeService()
+        XCTAssertEqual(auth.pendingTeardown, .signOut, "read at init, before any restore runs")
+
+        await auth.retryPendingTeardown()
+
+        XCTAssertNil(auth.pendingTeardown)
+        XCTAssertTrue(lifecycle.events.contains(.wipeStore))
+        XCTAssertEqual(auth.state, .signedOut)
+    }
+
+    /// And a retry that keeps failing says so and leaves sign-in unavailable.
+    func testARetryThatFailsAgainLeavesSignInUnavailable() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+        let auth = AuthService(config: nil,
+                               defaults: defaults,
+                               isRelease: false,
+                               sessionStorage: UnclearableSessionStore(mode: .removalThrows))
+        auth.lifecycle = lifecycle
+
+        await auth.retryPendingTeardown()
+
+        XCTAssertEqual(auth.pendingTeardown, .signOut)
+        XCTAssertEqual(auth.message, AnimalTracker.AuthError.signOutUnfinishedAtLaunch.errorDescription)
+        XCTAssertEqual(SignInView.offer(pendingTeardown: auth.pendingTeardown, isConfigured: true),
+                       .finishTeardown(.signOut),
+                       "the screen keeps offering the retry and not the Apple button")
+    }
+
+    /// A6. The attended path pushes before anything is destroyed. This path destroys the records
+    /// made after a refused sign-out, which is strictly more than the attended one does, so it
+    /// pushes too, with the same bound, before the sweep and the wipe.
+    func testTheLaunchRetryPushesBeforeItDestroysAnything() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+        let auth = makeService()
+        let fake = lifecycle!
+        var pushedWith: TimeInterval?
+        var eventsAtPush: [FakeStoreLifecycle.Event] = []
+        auth.finalPushBeforeSignOut = { timeout in
+            pushedWith = timeout
+            eventsAtPush = fake.events
+            return true
+        }
+
+        await auth.restoreSession()
+
+        XCTAssertEqual(pushedWith, AuthService.finalPushTimeout, "the same bound the attended path uses")
+        XCTAssertEqual(eventsAtPush, [], "nothing had been cancelled or destroyed when the push ran")
+        XCTAssertTrue(lifecycle.events.contains(.wipeStore))
+    }
+
+    /// Not on the deletion retry. The auth user is already gone server-side, so every push would
+    /// 401, and there is nothing left to push it to.
+    func testTheLaunchRetryOfADeletionDoesNotPush() async {
+        defaults.set(PendingTeardown.accountDeleted.rawValue, forKey: AuthService.pendingTeardownKey)
+        let auth = makeService()
+        var pushed = false
+        auth.finalPushBeforeSignOut = { _ in
+            pushed = true
+            return true
+        }
+
+        await auth.restoreSession()
+
+        XCTAssertFalse(pushed, "there is no account left to push to")
+        XCTAssertTrue(lifecycle.events.contains(.wipeStore))
+    }
+
+    /// A14. `signOut()` guards on `isSigningOut` and `deleteAccount()` on `isWorking`.
+    /// `restoreSession()` reaches `wipeStore()` through the teardown retry and had no guard at all.
+    func testASecondRestoreSessionWhileOneIsRunningIsADoNothing() async {
+        defaults.set(PendingTeardown.signOut.rawValue, forKey: AuthService.pendingTeardownKey)
+        let auth = makeService()
+        var reentered = false
+        lifecycle.onCancelSync = { [weak auth] in
+            guard let auth, !reentered else { return }
+            reentered = true
+            await auth.restoreSession()
+        }
+
+        await auth.restoreSession()
+
+        XCTAssertTrue(reentered, "the premise: a second restore really did arrive mid-teardown")
+        XCTAssertEqual(lifecycle.events.filter { $0 == .wipeStore }.count, 1,
+                       "two concurrent teardowns must not be possible")
     }
 
     // MARK: nonce

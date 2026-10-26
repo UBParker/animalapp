@@ -9,6 +9,9 @@ struct SavedPhoto: Equatable {
 enum MediaStoreError: Error {
     case invalidImage
     case writeFailed(String)
+    /// `removeAll()` ran and these names are still in the store. Half the person's data is files,
+    /// so a leftover is reported rather than discarded (RULING 2).
+    case notCleared([String])
 }
 
 /// Where photos, videos, and audio live. Filenames are relative single path components; the store
@@ -29,6 +32,10 @@ protocol MediaStore {
     /// Removes every file the store holds. Used only by the whole-store wipe that runs when
     /// ownership changes or an account is deleted; per-row deletion goes through `delete(_:)`.
     func removeAll() throws
+    /// Every name the store still holds, so a wipe can verify `removeAll()` actually left nothing
+    /// rather than assuming it (RULING 2). Recursive: a removal that fails leaves an arbitrary
+    /// subset behind, nested files included.
+    func contents() throws -> [String]
 }
 
 enum MediaNaming {
@@ -108,6 +115,8 @@ final class InMemoryMediaStore: MediaStore {
         files.removeAll()
         try? FileManager.default.removeItem(at: tempDir)
     }
+
+    func contents() throws -> [String] { files.keys.sorted() }
 
     /// Mirrors `FileMediaStore.write(_:to:)` so both stores save a photo the same way.
     private func write(_ data: Data, to filename: String) throws {

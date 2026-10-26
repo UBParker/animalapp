@@ -61,13 +61,33 @@ final class FileMediaStore: MediaStore {
         try? FileManager.default.removeItem(at: url(for: filename))
     }
 
+    /// Best effort first, then verified, and the root is always put back.
+    ///
+    /// The old shape removed the whole directory in one call and caught only `fileNoSuchFile`, so
+    /// any other error propagated and the `createDirectory` that makes the store usable again was
+    /// skipped. And `removeItem` on a directory is not atomic: reviewer A showed that one
+    /// undeletable file nested a level down leaves an arbitrary subset of its siblings behind. So
+    /// each child is removed in turn, the root is recreated whatever happened, and the throw comes
+    /// last, naming what survived, once the store is usable again.
     func removeAll() throws {
-        do {
-            try FileManager.default.removeItem(at: root)
-        } catch CocoaError.fileNoSuchFile {
-            // Already gone. Recreating below is still the right end state.
+        let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in children {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
         }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var createFailure: (any Error)?
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            createFailure = error
+        }
+        let left = try contents()
+        if !left.isEmpty { throw MediaStoreError.notCleared(left) }
+        if let createFailure { throw createFailure }
+    }
+
+    func contents() throws -> [String] {
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.subpathsOfDirectory(atPath: root.path)
     }
 
     private func write(_ data: Data, to filename: String) throws {

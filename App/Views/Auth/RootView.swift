@@ -67,13 +67,29 @@ struct RootView: View {
             auth.lifecycle = store
             // The push an unattended sign-out attempts before anything is destroyed. `AuthService`
             // takes it as a closure rather than calling `SyncCoordinating` itself, so that
-            // protocol stays declared once, here in Task 5. Nil sync means nothing to push, which
-            // is `true`. Weak, so this closure cannot keep the lifecycle alive past the scene.
-            auth.finalPushBeforeSignOut = { [weak store] timeout in
-                await store?.sync?.pushBeforeSignOut(timeout: timeout) ?? true
-            }
+            // protocol stays declared once, here in Task 5.
+            auth.finalPushBeforeSignOut = RootView.finalPush(store)
             auth.startWatchingAppleCredential()
             await auth.restoreSession()
+        }
+    }
+}
+
+extension RootView {
+    /// The push an unattended sign-out attempts before anything is destroyed.
+    ///
+    /// A function rather than a closure literal inside the `.task` so it is reachable from a test:
+    /// it is the one piece of wiring this task added on its own judgement and it sits on the
+    /// unattended destructive path, where its absence loses records silently (B-F6).
+    ///
+    /// `guard let store else { return false }` rather than the old `?? true` over the whole
+    /// optional chain: "the lifecycle is gone" and "there is no sync, so there is nothing to push"
+    /// are different answers and only the second one is a success (B-F4). Weak, so this cannot keep
+    /// the lifecycle alive past the scene.
+    static func finalPush(_ store: AppStoreLifecycle?) -> @MainActor (TimeInterval) async -> Bool {
+        { [weak store] timeout in
+            guard let store else { return false }
+            return await store.sync?.pushBeforeSignOut(timeout: timeout) ?? true
         }
     }
 }

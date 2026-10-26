@@ -6,6 +6,12 @@ enum PersistenceController {
     private static let log = Logger(subsystem: "com.ashlab.AnimalTracker", category: "persistence")
 
     /// Every @Model type in the app. Later plans append their models here.
+    ///
+    /// Anything added here has to be counted in `AppStoreLifecycle.storeIsEmpty()` as well. A model
+    /// this list knows about and that function does not makes a store full of that model read as
+    /// empty, which is `.claimEmpty`, which adopts it into the account signing in with no wipe and
+    /// no watermark reset. `ContainerResetTests.testEveryModelTypeIsCountedByStoreIsEmpty` fails
+    /// when the two lists drift (A7).
     static let modelTypes: [any PersistentModel.Type] = [
         Animal.self,
         VoiceRecording.self,
@@ -31,6 +37,11 @@ enum PersistenceController {
         if inMemory {
             config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         } else if let url {
+            // A url the caller chose may name a directory that does not exist yet, and
+            // `ModelContainer` does not create one. The app now passes `storeURL` explicitly (A5),
+            // and Application Support is not present in a fresh app container.
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
             config = ModelConfiguration(url: url, cloudKitDatabase: .none)
         } else {
             config = ModelConfiguration(cloudKitDatabase: .none)
@@ -38,11 +49,33 @@ enum PersistenceController {
         return try ModelContainer(for: schema, configurations: [config])
     }
 
-    /// Deletes the store and its sidecars. Used by tests and by a future "reset data" action.
-    static func destroy(url: URL? = nil) {
-        for file in sidecars(of: url ?? storeURL) {
-            try? FileManager.default.removeItem(at: file)
+    /// Deletes the store and its sidecars, and reports every path that is still on disk.
+    ///
+    /// Three unchecked `try?` is what made A1 possible: a `.store` file that would not unlink while
+    /// its two sidecars went left an intact SQLite database at the path the wipe then reopened and
+    /// published as a clean store. So every removal is checked and the three paths are read back.
+    /// An empty return is the only evidence a caller may act on.
+    ///
+    /// Up to three passes, because a still-retained SQLite connection on an unlinked inode can
+    /// recreate `-wal` or `-shm` on a checkpoint (documented in `ContainerResetTests` since this
+    /// method was written). One late checkpoint must not read as a store that survived.
+    @discardableResult
+    static func destroy(url: URL? = nil) -> [URL] {
+        var remaining = sidecars(of: url ?? storeURL)
+        for pass in 1...3 {
+            for file in remaining {
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch CocoaError.fileNoSuchFile {
+                    // Already gone, which is the end state this wants.
+                } catch {
+                    log.error("Pass \(pass, privacy: .public) could not remove \(file.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                }
+            }
+            remaining = remaining.filter { FileManager.default.fileExists(atPath: $0.path) }
+            if remaining.isEmpty { break }
         }
+        return remaining
     }
 
     /// The store file and its two sidecars. Public so a test can assert a wipe left nothing.
@@ -53,15 +86,28 @@ enum PersistenceController {
     /// `destroy` plus every `<name>.corrupt-<timestamp>` copy `moveAside` left behind. Sign-out and
     /// a user change have to use this one: a recovered copy is a complete copy of the previous
     /// person's records sitting next to the live store.
-    static func destroyIncludingRecoveredCopies(url: URL? = nil) {
+    @discardableResult
+    static func destroyIncludingRecoveredCopies(url: URL? = nil) -> [URL] {
         let target = url ?? storeURL
-        destroy(url: target)
+        var remaining = destroy(url: target)
         let directory = target.deletingLastPathComponent()
         let base = target.lastPathComponent
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        for name in names where name.hasPrefix(base) && name.contains(".corrupt-") {
-            try? FileManager.default.removeItem(at: directory.appending(path: name))
+        func recoveredCopies() -> [URL] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return names.filter { $0.hasPrefix(base) && $0.contains(".corrupt-") }
+                .map { directory.appending(path: $0) }
         }
+        for copy in recoveredCopies() {
+            do {
+                try FileManager.default.removeItem(at: copy)
+            } catch {
+                log.error("Could not remove \(copy.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+        // Read back, like the store itself: a recovered copy is a complete copy of the previous
+        // person's records, so one left behind is the same failure as a store left behind.
+        remaining += recoveredCopies()
+        return remaining
     }
 
     /// Opens the store, and if it cannot be opened moves it aside and starts a fresh one rather

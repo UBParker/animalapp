@@ -1,5 +1,39 @@
 import SwiftUI
 
+/// One button the Account section renders while signed in.
+///
+/// B-F7: addendum item 2 requires that the screen offer no way to force past a refused teardown,
+/// and the test for it used to grep notice strings for the word "force", which a
+/// "Sign out anyway, I accept the risk" button would have left green. The section's buttons take
+/// their titles and roles from `AccountButtons` below, so a test on that list is a test on what
+/// the screen renders. A button written straight into the view would still escape it, which is the
+/// residual limit of inspecting SwiftUI without a view-inspection library.
+struct AccountButton: Equatable {
+    enum Effect: Equatable {
+        /// Opens a confirmation dialog. Destroys nothing by itself.
+        case opensConfirmation
+        /// Reaches `performSignOut()`, which calls `auth.signOut()` and nothing else, so the
+        /// outcome is always rendered and a refusal is always left for the next launch to retry.
+        case signsOut
+        case cancels
+    }
+
+    let title: String
+    let isDestructive: Bool
+    let effect: Effect
+}
+
+enum AccountButtons {
+    static let signOut = AccountButton(title: "Sign out", isDestructive: true, effect: .opensConfirmation)
+    static let backUpAndSignOut = AccountButton(title: "Back up and sign out", isDestructive: false, effect: .signsOut)
+    static let staySignedIn = AccountButton(title: "Stay signed in", isDestructive: false, effect: .cancels)
+    static let signOutAnyway = AccountButton(title: "Sign out anyway", isDestructive: true, effect: .signsOut)
+
+    /// Every button the signed-in Account section offers, in render order. There is deliberately
+    /// nothing here that signs out while skipping the pending-teardown retry.
+    static let all = [signOut, backUpAndSignOut, staySignedIn, signOutAnyway]
+}
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthService
@@ -27,26 +61,26 @@ struct SettingsView: View {
                     LabeledContent("Signed in as", value: email ?? userID.uuidString)
                         // Dialog 2 of the sign-out flow, on its own host view so it is never
                         // stacked on the same view as dialog 1.
-                        .confirmationDialog("\(unsyncedCount) record\(unsyncedCount == 1 ? "" : "s") could not be backed up",
+                        .confirmationDialog(SettingsView.unsyncedDialogTitle(count: unsyncedCount),
                                             isPresented: $showUnsyncedSignOutConfirmation,
                                             titleVisibility: .visible) {
-                            Button("Sign out anyway", role: .destructive) {
+                            Button(AccountButtons.signOutAnyway.title, role: .destructive) {
                                 Task { await performSignOut() }
                             }
-                            Button("Stay signed in", role: .cancel) {}
+                            Button(AccountButtons.staySignedIn.title, role: .cancel) {}
                         } message: {
-                            Text("Signing out deletes everything on this phone, including those \(unsyncedCount). They are not on the server, so they cannot be downloaded again.")
+                            Text(SettingsView.unsyncedDialogMessage(count: unsyncedCount))
                         }
-                    Button("Sign out", role: .destructive) { showSignOutConfirmation = true }
+                    Button(AccountButtons.signOut.title, role: .destructive) { showSignOutConfirmation = true }
                         .disabled(isSigningOut || auth.isSigningOut)
                         // Dialog 1 of the sign-out flow.
                         .confirmationDialog("Sign out of this account?",
                                             isPresented: $showSignOutConfirmation,
                                             titleVisibility: .visible) {
-                            Button("Back up and sign out") {
+                            Button(AccountButtons.backUpAndSignOut.title) {
                                 Task { await backUpThenSignOut() }
                             }
-                            Button("Stay signed in", role: .cancel) {}
+                            Button(AccountButtons.staySignedIn.title, role: .cancel) {}
                         } message: {
                             Text("Signing out deletes the records on this phone. Anything already backed up is downloaded again next time you sign in.")
                         }
@@ -148,14 +182,58 @@ struct SettingsView: View {
         signOutNotice = nil
         let pushed = await store.sync?.pushBeforeSignOut(timeout: AuthService.finalPushTimeout) ?? true
         let outstanding = store.sync?.unsyncedRowCount() ?? 0
-        if pushed && outstanding == 0 {
+        switch SettingsView.step(pushed: pushed, outstanding: outstanding) {
+        case .signOut:
             await performSignOut()
-            return
+        case .warn(let count):
+            // Failed, timed out, or finished with rows still behind the watermark. Name the number
+            // and make the person confirm a second time before anything is destroyed.
+            unsyncedCount = count
+            // B-F3. This branch used to set nothing but the dialog flag, so a dialog that did not
+            // present made the whole tap a silent no-op: nothing signed out, nothing said, and
+            // `isSigningOut` already back down. The row now says what happened whether or not the
+            // dialog appears.
+            signOutNotice = SettingsView.unsyncedSignOutNotice(count: count)
+            showUnsyncedSignOutConfirmation = true
         }
-        // Failed, timed out, or finished with rows still behind the watermark. Name the number and
-        // make the person confirm a second time before anything is destroyed.
-        unsyncedCount = outstanding
-        showUnsyncedSignOutConfirmation = true
+    }
+
+    /// What `backUpThenSignOut()` does with the push result, lifted out of the view so the branch
+    /// can be asserted rather than watched (B-F3).
+    ///
+    /// A push that failed or timed out warns even with nothing behind the watermark: "nothing
+    /// outstanding" reported by a push that did not run is not evidence that anything was backed
+    /// up.
+    enum SignOutStep: Equatable {
+        case signOut
+        case warn(count: Int)
+    }
+
+    static func step(pushed: Bool, outstanding: Int) -> SignOutStep {
+        pushed && outstanding == 0 ? .signOut : .warn(count: outstanding)
+    }
+
+    /// A13. `pushed == false` with nothing behind the watermark used to open a destructive dialog
+    /// titled "0 records could not be backed up", which reads like a bug and invites tapping
+    /// through it. A count of zero in this branch always means the push itself did not finish, so
+    /// that is what it says.
+    static func unsyncedDialogTitle(count: Int) -> String {
+        count == 0
+            ? "Could not finish backing up"
+            : "\(count) record\(count == 1 ? "" : "s") could not be backed up"
+    }
+
+    static func unsyncedDialogMessage(count: Int) -> String {
+        count == 0
+            ? "Signing out deletes the records on this phone. The backup did not finish, so anything that had not already reached the server cannot be downloaded again."
+            : "Signing out deletes everything on this phone, including those \(count). They are not on the server, so they cannot be downloaded again."
+    }
+
+    /// The row's own words for the same pause, shown whether or not the dialog presents.
+    static func unsyncedSignOutNotice(count: Int) -> String {
+        count == 0
+            ? "Sign out paused: the backup did not finish. Nothing has been deleted yet. Confirm the sign-out to continue, or stay signed in and try again later."
+            : "Sign out paused: \(count) record\(count == 1 ? "" : "s") on this phone \(count == 1 ? "is" : "are") not backed up. Nothing has been deleted yet."
     }
 
     /// Signs out and renders the outcome. `signOut()` returns `SignOutOutcome` rather than
@@ -182,12 +260,24 @@ struct SettingsView: View {
             // Nothing was destroyed: the keychain refused before the wipe, so the session, the
             // records and the media are all still here and still theirs.
             return "Sign out did not complete. Nothing was deleted: your records are still on this phone and still yours, and you are still signed in. This phone will try again the next time the app starts."
-        case .sessionSurvivedSignOut:
-            // The wipe did run, so the records really are gone. Only a session file came back.
-            return "Sign out did not finish. The records on this phone are gone, but a session file could not be removed. This phone will try again the next time the app starts; restarting the phone also clears it."
+        case .localDataNotCleared:
+            // RULING 1. The session went, the records did not. Nothing is shown and the next launch
+            // retries, so the one thing not to say here is that this is finished.
+            return "Sign out did not finish. This phone is signed out, but it could not delete the records it was holding, so they are still here. It will finish clearing them before anyone signs in."
+        case .mediaNotCleared:
+            // RULING 2. The rows went; some files did not.
+            return "Sign out did not finish. The records on this phone are gone, but some audio or photo files could not be removed. This phone will try again the next time the app starts."
         case .signOutAlreadyRunning:
             return "A sign out is already under way. Wait for it to finish."
         default:
+            // `.sessionSurvivedSignOut` lands here on purpose, and so does anything later added.
+            // That case sets `state = .signedOut` before `performSignOut()` resumes, so this view
+            // and its `@State` are already gone and no screen can render a notice written here
+            // (A-minor 9, B-F5). The reachable surface is `auth.message`, which `AuthService` has
+            // already set to the same error's `errorDescription` and which `SignInView` renders;
+            // `AuthServiceTests.testASessionThatSurvivesTheSecondSweepIsReportedAndLeavesARetryMarker`
+            // is what pins it. Routing it twice would mean two strings to keep in step, one of
+            // which nobody can see.
             return error.errorDescription ?? "Sign out did not complete. Nothing was deleted."
         }
     }
