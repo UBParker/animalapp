@@ -28,12 +28,16 @@ This file exists because the full reviews live in a git-ignored execution worksp
 
 **The bucket's allowed mime type does not match what the client sends.** The bucket allows `audio/mp4`; the client library derives `audio/x-m4a` from the file extension. Every upload would be rejected. Harmless to security, but it blocks the milestone at first contact.
 
+## State at the pause
+
+Tasks 1 to 5 are implemented, reviewed and fixed, at commit `e0c08e2`, with 248 app tests, 28 audio and 28 statistics tests passing. Task 6's migration is committed at `7062c00`, verified only as text, never applied, and carries every defect listed above.
+
 ## Resolved during execution, kept here because the mechanisms recur
 
-- An unreadable store-ownership record used to trigger a full wipe, so adding one field in a later release would have made users signing into their own account lose every recording not yet uploaded. Now "no record" and "record I cannot read" are distinguished, and the latter never wipes.
-- The local wipe did not verify that the database file was gone, and reopened whatever remained. A surviving main file with deleted companions reopens intact, after which the new account is recorded as its owner, adopting the previous user's data. Ruling: an unverified wipe is a hard failure that keeps its retry marker and publishes nothing.
-- Signing out verified the keychain was empty, but the library's background token refresh could rewrite it afterwards, leaving a wiped store with a live session that signed the user back in at next launch.
-- The pre-push secret guard scanned the working tree rather than the commits being pushed, and reported clean on any git error.
+- Fixed in `575b376`. An unreadable store-ownership record used to trigger a full wipe, so adding one field in a later release would have made users signing into their own account lose every recording not yet uploaded. Now "no record" and "record I cannot read" are distinguished, and the latter never wipes.
+- Fixed in `e0c08e2`. The local wipe did not verify that the database file was gone, and reopened whatever remained. A surviving main file with deleted companions reopens intact, after which the new account is recorded as its owner, adopting the previous user's data. Ruling: an unverified wipe is a hard failure that keeps its retry marker and publishes nothing.
+- Fixed in `90e3518`. Signing out verified the keychain was empty, but the library's background token refresh could rewrite it afterwards, leaving a wiped store with a live session that signed the user back in at next launch.
+- Fixed in `c15e829`. The pre-push secret guard scanned the working tree rather than the commits being pushed, and reported clean on any git error.
 
 ## Standing decisions
 
