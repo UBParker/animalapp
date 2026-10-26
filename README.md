@@ -37,3 +37,20 @@ the same range arguments by hand (`scripts/check-secrets.sh origin/main..HEAD`) 
 arguments scans the working tree only. It exits 0 clean, 1 on a finding, 2 when it could not run.
 `scripts/check-secrets-selftest.sh` proves all of that against a throwaway repository under
 `$TMPDIR`; it pushes nothing and writes no secret to disk.
+
+## Supabase schema
+
+The schema lives in `supabase/migrations/`. To apply it:
+
+```bash
+read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN
+supabase link --project-ref ojzmtyapkaxxliuurssc
+supabase db push
+unset SUPABASE_ACCESS_TOKEN
+```
+
+The access token and the database password are never stored in the repo. Without the CLI, apply
+the same file with `psql "$PGURI" -v ON_ERROR_STOP=1 -f supabase/migrations/<file>.sql`.
+
+If the `storage.objects` policies are refused with `must be owner of table objects`, replay just
+that block after `set role supabase_storage_admin;` (see Plan H Task 6 Step 7).

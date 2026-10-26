@@ -1,0 +1,2 @@
+# Minimal config so `supabase link` and `supabase db push` know which project this folder belongs to.
+project_id = "ojzmtyapkaxxliuurssc"
