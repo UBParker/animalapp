@@ -11,5 +11,7 @@ DerivedData/
 # or `git add` silently does nothing and a fresh clone gets a device build with no entitlement.
 App/AnimalTracker.entitlements
 
-# Supabase CLI scratch (version cache, linked-project ref)
+# Supabase CLI scratch (version cache, linked-project ref, local branch name).
+# `supabase start` and `supabase db reset` write .branches/_current_branch on every run.
 supabase/.temp/
+supabase/.branches/

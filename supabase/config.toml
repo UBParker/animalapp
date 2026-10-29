@@ -1,2 +1,29 @@
 # Minimal config so `supabase link` and `supabase db push` know which project this folder belongs to.
 project_id = "ojzmtyapkaxxliuurssc"
+
+# Ports are shifted off the CLI defaults because another local Supabase project
+# (supabase_db_staxyz) already holds 54321 to 54324 on this machine. Nothing here
+# affects the hosted project; these apply to `supabase start` only.
+[api]
+port = 54421
+# Supabase is removing the automatic `alter default privileges` that granted every new table to
+# anon, authenticated and service_role: opt-in from 2026-04-28, default for new projects
+# 2026-05-30, applied to existing projects on 2026-10-30.
+# https://github.com/orgs/supabase/discussions/45329
+# Setting it false here makes the local database behave the way the hosted project will, so a
+# missing `grant` fails locally instead of being masked until the cutover.
+auto_expose_new_tables = false
+
+[db]
+port = 54422
+shadow_port = 54420
+major_version = 17
+
+[studio]
+port = 54423
+
+[inbucket]
+port = 54424
+
+[analytics]
+enabled = false

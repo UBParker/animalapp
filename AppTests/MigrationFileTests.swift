@@ -29,6 +29,18 @@ final class MigrationFileTests: XCTestCase {
         sql.components(separatedBy: needle).count - 1
     }
 
+    /// Just the body of `sync_row_guard()`, so a rule about the trigger cannot be satisfied by
+    /// text somewhere else in the file. `delete_my_account()` also raises and also deletes, and a
+    /// whole-file `contains` would happily read its words as the trigger's.
+    private func syncRowGuardBody() throws -> String {
+        let sql = try migrationSQL()
+        let head = try XCTUnwrap(sql.range(of: "create or replace function public.sync_row_guard()"),
+                                 "the guard function is not in the file")
+        let rest = sql[head.upperBound...]
+        let end = try XCTUnwrap(rest.range(of: "$$;"), "the guard function body is not terminated")
+        return String(rest[..<end.lowerBound])
+    }
+
     /// The helper is load-bearing for nine of the counts below, so it gets its own test rather
     /// than being trusted.
     func testTheHelperDropsCommentLines() throws {
@@ -65,10 +77,43 @@ final class MigrationFileTests: XCTestCase {
         XCTAssertEqual(count("deleted_at timestamptz,", in: sql), 4)
     }
 
-    func testIndexesCoverBothThePushAndThePullCursor() throws {
+    func testTheOnlyIndexesAreThePullCursorOnes() throws {
         let sql = try migrationSQL()
-        XCTAssertEqual(count("(user_id, updated_at)", in: sql), 4, "push side")
         XCTAssertEqual(count("(user_id, server_updated_at, id)", in: sql), 4, "pull cursor, ordered and tie-broken by id")
+        XCTAssertEqual(count("(user_id, updated_at)", in: sql), 0,
+                       "the push-side indexes served no query in this design: the server is never asked for rows by device timestamp")
+        XCTAssertEqual(count("create index", in: sql), 4,
+                       "four pull-cursor indexes and nothing else; (user_id, id) comes free with the primary key")
+    }
+
+    /// `id uuid primary key` is unique across every user, and the nineteen built-in tag ids are a
+    /// fixed function of kind and name, so any install can compute them. One account inserting
+    /// those nineteen ids under its own user_id makes every other account's tag push fail forever
+    /// on `on conflict (id) do update`, against a row it cannot see, fix or delete.
+    func testThePrimaryKeyIsPerUserSoATagIdCannotBeSquatted() throws {
+        let sql = try migrationSQL()
+        XCTAssertEqual(count("primary key (user_id, id)", in: sql), 4,
+                       "the key must be per user, so two accounts can hold the same built-in tag id")
+        XCTAssertEqual(count("id uuid primary key", in: sql), 0,
+                       "a globally unique id is a cross-user denial of service on a publicly computable value")
+        XCTAssertEqual(count("    id uuid not null,", in: sql), 4)
+    }
+
+    // MARK: privileges
+
+    /// Privileges and row level security are independent, and privileges are checked first, so a
+    /// missing grant refuses the request before a single policy is consulted. This used to be free
+    /// because Supabase ran `alter default privileges` on every new table; that is being removed,
+    /// and it reaches existing projects on 2026-10-30.
+    /// https://github.com/orgs/supabase/discussions/45329
+    func testEveryTableGrantsTheFourVerbsToAuthenticated() throws {
+        let sql = try migrationSQL()
+        for table in Self.tables {
+            XCTAssertTrue(sql.contains("grant select, insert, update, delete on \(table) to authenticated"),
+                          "no table privileges granted on \(table); every request would return 42501")
+        }
+        XCTAssertEqual(count("grant select, insert, update, delete on public.", in: sql), 4)
+        XCTAssertFalse(sql.contains("to anon"), "anon is never a caller here; the app signs in before it syncs")
     }
 
     // MARK: row level security
@@ -92,8 +137,8 @@ final class MigrationFileTests: XCTestCase {
         let sql = try migrationSQL()
         XCTAssertEqual(count("create policy", in: sql), 20)
         XCTAssertEqual(count("on storage.objects for", in: sql), 4)
-        XCTAssertEqual(count("to authenticated", in: sql), 21,
-                       "twenty policies plus the grant on delete_my_account()")
+        XCTAssertEqual(count("to authenticated", in: sql), 25,
+                       "twenty policies, four table grants, and the grant on delete_my_account()")
     }
 
     /// `(select auth.uid())` is evaluated once per statement instead of once per row, which is the
@@ -106,6 +151,10 @@ final class MigrationFileTests: XCTestCase {
                        "every using and with check clause on the sixteen table policies plus the four storage ones")
         XCTAssertFalse(sql.contains("using (user_id = auth.uid())"),
                        "the bare per-row form must not be used in a policy")
+        // A count catches a clause that is REMOVED. It never catches one that is widened, because
+        // `or true` leaves every occurrence in place.
+        XCTAssertFalse(sql.contains("or true"), "a disjunctive true defeats every policy it is added to")
+        XCTAssertFalse(sql.contains("using (true)"), "no policy may be unconditional")
     }
 
     /// A `using` clause alone lets a row be written into someone else's name. Every insert and
@@ -125,6 +174,40 @@ final class MigrationFileTests: XCTestCase {
         XCTAssertEqual(count("execute function public.sync_row_guard()", in: sql), 4)
     }
 
+    /// A `for each statement` trigger contains both of the needles the test above counts, and
+    /// `new` does not exist in one, so every write would fail at runtime with the suite still green.
+    func testTheGuardTriggerFiresOncePerRow() throws {
+        XCTAssertEqual(count("for each row execute function public.sync_row_guard()", in: try migrationSQL()), 4,
+                       "a statement-level trigger has no `new` and would fail on every write")
+    }
+
+    /// `return old` is the whole reason a superseded push gets a 2xx instead of an error. Swapping
+    /// in `raise exception` changes no count anywhere and turns every stale retry into a failed sync.
+    func testTheStaleBranchReturnsOldRatherThanRaising() throws {
+        let body = try syncRowGuardBody()
+        let gate = try XCTUnwrap(body.range(of: "if new.updated_at <= old.updated_at then"),
+                                 "the staleness gate is gone")
+        let afterGate = body[gate.upperBound...]
+        let endIf = try XCTUnwrap(afterGate.range(of: "end if;"), "the staleness gate is not closed")
+        XCTAssertEqual(afterGate[..<endIf.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines),
+                       "return old;",
+                       "the stale branch must return the stored row untouched, not raise and not return null")
+        XCTAssertFalse(body.contains("raise"), "the guard never raises; a stale device must see success and move on")
+    }
+
+    /// Pins today's order so a silent reorder is caught. It is also the ordering that makes an
+    /// arriving delete lose to a newer stored row, which is finding 1 of the fix wave: when that
+    /// is fixed the gate moves above the sticky assignment and this assertion inverts with it.
+    func testTheStickyDeleteAssignmentSitsAboveTheStalenessGate() throws {
+        let body = try syncRowGuardBody()
+        let sticky = try XCTUnwrap(body.range(of: "new.deleted_at := coalesce(old.deleted_at, new.deleted_at)"),
+                                   "the sticky delete assignment is gone")
+        let gate = try XCTUnwrap(body.range(of: "if new.updated_at <= old.updated_at then"),
+                                 "the staleness gate is gone")
+        XCTAssertLessThan(sticky.lowerBound, gate.lowerBound,
+                          "sticky above the gate: the two are order-dependent and neither needle alone says which runs first")
+    }
+
     func testTheGuardRejectsAStaleUpdateAndKeepsDeletedAtSticky() throws {
         let sql = try migrationSQL()
         XCTAssertTrue(sql.contains("if new.updated_at <= old.updated_at then"),
@@ -138,6 +221,17 @@ final class MigrationFileTests: XCTestCase {
     }
 
     // MARK: storage
+
+    /// The sixteen table policies are pinned verb by verb; the four storage ones were pinned only
+    /// by a count, so swapping `for delete` for a second `for select` held every count steady and
+    /// shipped a bucket no user can ever delete from.
+    func testEveryStorageVerbHasItsOwnPolicy() throws {
+        let sql = try migrationSQL()
+        for verb in ["for select", "for insert", "for update", "for delete"] {
+            XCTAssertTrue(sql.contains("on storage.objects \(verb) to authenticated"),
+                          "missing a '\(verb) to authenticated' policy on storage.objects")
+        }
+    }
 
     func testCreatesThePrivateAudioBucketWithLimits() throws {
         let sql = try migrationSQL()
@@ -172,6 +266,8 @@ final class MigrationFileTests: XCTestCase {
             XCTAssertTrue(sql.contains("delete from \(table) where user_id = uid"), "missing delete for \(table)")
         }
         XCTAssertTrue(sql.contains("revoke all on function public.delete_my_account() from public"))
+        XCTAssertEqual(count("set search_path", in: sql), 2,
+                       "both functions pin it: the definer because it must, the trigger because it is free")
         XCTAssertTrue(sql.contains("grant execute on function public.delete_my_account() to authenticated"))
     }
 }
