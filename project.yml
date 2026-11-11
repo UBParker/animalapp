@@ -21,6 +21,9 @@ targets:
   AnimalTracker:
     type: application
     platform: iOS
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) LOCAL_ONLY"
     sources:
       - path: App
         excludes:
@@ -29,12 +32,14 @@ targets:
         buildPhase: resources
     entitlements:
       path: App/AnimalTracker.entitlements
-      properties:
-        com.apple.developer.applesignin: [Default]
+      properties: {}
     postCompileScripts:
       - name: Fail a Release build with no anon key
         basedOnDependencyAnalysis: false
         script: |
+          case " $SWIFT_ACTIVE_COMPILATION_CONDITIONS " in
+            *" LOCAL_ONLY "*) exit 0 ;;
+          esac
           if [ "$CONFIGURATION" = "Release" ]; then
             KEY=$(/usr/libexec/PlistBuddy -c "Print :SupabaseAnonKey" "$SRCROOT/App/Config/Supabase.plist" 2>/dev/null || echo "")
             KEY=$(printf %s "$KEY" | tr -d '[:space:]')
