@@ -1,6 +1,38 @@
 import SwiftData
 import SwiftUI
 
+/// The app's top-level tabs, in display order.
+enum RootTab: String, CaseIterable {
+    case buttons, feed, poop, health, voice
+
+    var title: String {
+        switch self {
+        case .buttons: "Buttons"
+        case .feed: "Feed"
+        case .poop: "Poop"
+        case .health: "Health"
+        case .voice: "Voice"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .buttons: "square.grid.2x2"
+        case .feed: "leaf"
+        case .poop: "circle.dotted"
+        case .health: "heart.text.square"
+        case .voice: "waveform"
+        }
+    }
+}
+
+/// Which tabs a build shows. A local-only build hides the placeholder tabs and shows only Voice.
+enum RootTabs {
+    static func visible(localOnly: Bool) -> [RootTab] {
+        localOnly ? [.voice] : RootTab.allCases
+    }
+}
+
 struct RootTabView: View {
     @Query(sort: \Animal.sortOrder) private var animals: [Animal]
     @AppStorage(AppStorageKeys.selectedAnimalId) private var selectedAnimalId = ""
@@ -16,17 +48,26 @@ struct RootTabView: View {
 
     var body: some View {
         TabView {
-            tab("Buttons", "square.grid.2x2") { Text("Buttons") }
-            tab("Feed", "leaf") { Text("Feed") }
-            tab("Poop", "circle.dotted") { Text("Poop") }
-            tab("Health", "heart.text.square") { Text("Health") }
-            tab("Voice", "waveform") { VoiceTabView() }
+            ForEach(RootTabs.visible(localOnly: AppMode.isLocalOnly), id: \.self) { rootTab in
+                tab(rootTab.title, rootTab.symbol) { content(for: rootTab) }
+            }
         }
         .environment(\.selectedAnimal, selected)
         .onAppear { syncSelection() }
         .onChange(of: activeKey) { _, _ in syncSelection() }
         .fullScreenCover(isPresented: $showFirstRun) {
             NavigationStack { ManageAnimalsView(isFirstRun: true) }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for rootTab: RootTab) -> some View {
+        switch rootTab {
+        case .buttons: Text("Buttons")
+        case .feed: Text("Feed")
+        case .poop: Text("Poop")
+        case .health: Text("Health")
+        case .voice: VoiceTabView()
         }
     }
 
