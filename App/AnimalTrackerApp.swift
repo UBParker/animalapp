@@ -29,15 +29,25 @@ struct AnimalTrackerApp: App {
             // There is deliberately no `.task` here. Every piece of auth wiring lives in
             // `RootView`'s own `.task`, immediately before `restoreSession()`, so nothing depends
             // on the order SwiftUI happens to run a parent's task body against a child's.
-            RootView()
-                .environmentObject(auth)
-                .environmentObject(store)
-                .modelContainer(store.container)
-                // One media store for the whole app, the same object the wipe removes files
-                // through and the one Task 11 hands to sync. Two `FileMediaStore()` defaults
-                // agreeing on a root by convention is a wipe that misses live files the moment
-                // anybody injects one of them and not the other, with no compile error.
-                .environment(\.mediaStore, store.mediaStore)
+            // `LocalRootView` likewise does its own (sync-only) wiring in its own `.task`.
+            // The modifiers below apply once to whichever root is chosen, so the two cannot drift.
+            // `auth` is injected in local-only mode too: `SettingsView` requires it.
+            Group {
+                switch AppRoot.choose(localOnly: AppMode.isLocalOnly) {
+                case .localOnly:
+                    LocalRootView()
+                case .authGated:
+                    RootView()
+                }
+            }
+            .environmentObject(auth)
+            .environmentObject(store)
+            .modelContainer(store.container)
+            // One media store for the whole app, the same object the wipe removes files
+            // through and the one Task 11 hands to sync. Two `FileMediaStore()` defaults
+            // agreeing on a root by convention is a wipe that misses live files the moment
+            // anybody injects one of them and not the other, with no compile error.
+            .environment(\.mediaStore, store.mediaStore)
         }
     }
 }
