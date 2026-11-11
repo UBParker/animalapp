@@ -4,7 +4,15 @@ import SwiftUI
 @main
 struct AnimalTrackerApp: App {
     @StateObject private var store: AppStoreLifecycle
-    @StateObject private var auth = AuthService()
+    @StateObject private var auth = AuthService(config: AnimalTrackerApp.authConfig(localOnly: AppMode.isLocalOnly))
+
+    /// The Supabase config `AuthService` is built with. A local-only build gets none, even when
+    /// `Supabase.plist` holds a real key: with a config, supabase-swift's auth client would refresh
+    /// any session left in the keychain on foreground, sending the refresh token off the device.
+    static func authConfig(localOnly: Bool,
+                           load: () -> SupabaseConfig? = { SupabaseConfig.load() }) -> SupabaseConfig? {
+        localOnly ? nil : load()
+    }
 
     init() {
         // A5. One expression for the path, passed to both calls. The app used to open the store

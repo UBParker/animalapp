@@ -46,10 +46,11 @@ enum SettingsSections {
         localOnly ? [.animals, .tags, .data, .about] : SettingsSection.allCases
     }
 
-    /// The About section's note on where data goes. A local-only build syncs nothing.
+    /// The About section's note on where data goes. A local-only build syncs nothing, but the store
+    /// and media are not excluded from device backup, so the phone's own backup does include them.
     static func aboutFootnote(localOnly: Bool) -> String {
         localOnly
-            ? "Animals, voice recordings and tags are kept on this phone only. Nothing is backed up."
+            ? "Animals, voice recordings and tags stay on this phone and are not synced to any account. Your phone's own iCloud or computer backup includes them."
             : "Animals, voice recordings and tags sync to your Supabase account. Oral check-in transcripts are sent to Anthropic, using your own key."
     }
 }

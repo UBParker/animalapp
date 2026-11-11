@@ -10,9 +10,9 @@ final class SettingsSectionsTests: XCTestCase {
         XCTAssertEqual(SettingsSections.visible(localOnly: false), SettingsSection.allCases)
     }
 
-    func testLocalOnlyAboutFootnoteSaysNothingIsBackedUp() {
+    func testLocalOnlyAboutFootnoteSaysRecordsStayOnThePhoneAndAreInTheDeviceBackup() {
         XCTAssertEqual(SettingsSections.aboutFootnote(localOnly: true),
-                       "Animals, voice recordings and tags are kept on this phone only. Nothing is backed up.")
+                       "Animals, voice recordings and tags stay on this phone and are not synced to any account. Your phone's own iCloud or computer backup includes them.")
     }
 
     func testFullBuildAboutFootnoteKeepsTheSyncText() {
