@@ -34,6 +34,26 @@ enum AccountButtons {
     static let all = [signOut, backUpAndSignOut, staySignedIn, signOutAnyway]
 }
 
+/// The Settings sections, in display order.
+enum SettingsSection: CaseIterable {
+    case account, animals, oralCheckIn, tags, data, about
+}
+
+/// Which Settings sections a build shows. A local-only build has no account to manage and no
+/// oral check-in to configure, so it hides both.
+enum SettingsSections {
+    static func visible(localOnly: Bool) -> [SettingsSection] {
+        localOnly ? [.animals, .tags, .data, .about] : SettingsSection.allCases
+    }
+
+    /// The About section's note on where data goes. A local-only build syncs nothing.
+    static func aboutFootnote(localOnly: Bool) -> String {
+        localOnly
+            ? "Animals, voice recordings and tags are kept on this phone only. Nothing is backed up."
+            : "Animals, voice recordings and tags sync to your Supabase account. Oral check-in transcripts are sent to Anthropic, using your own key."
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthService
@@ -54,7 +74,9 @@ struct SettingsView: View {
     @State private var signOutNotice: String?
 
     var body: some View {
+        let visible = SettingsSections.visible(localOnly: AppMode.isLocalOnly)
         Form {
+            if visible.contains(.account) {
             Section("Account") {
                 switch auth.state {
                 case .signedIn(let userID, let email):
@@ -126,9 +148,13 @@ struct SettingsView: View {
                     Text(message).font(.footnote).foregroundStyle(.red)
                 }
             }
+            }
+            if visible.contains(.animals) {
             Section("Animals") {
                 NavigationLink("Manage Animals") { ManageAnimalsView() }
             }
+            }
+            if visible.contains(.oralCheckIn) {
             Section("Oral check-in") {
                 SecureField(hasStoredKey ? "API key saved (enter to replace)" : "Anthropic API key", text: $apiKeyDraft)
                     .textInputAutocapitalization(.never)
@@ -148,18 +174,25 @@ struct SettingsView: View {
                 Stepper("Max follow-up questions: \(questionCap)", value: $questionCap, in: 1...20)
                 Toggle("Speak questions aloud", isOn: $speakQuestions)
             }
+            }
+            if visible.contains(.tags) {
             Section("Tags") {
                 SettingsPlaceholderRow(title: "Poop tags")
                 NavigationLink("Voice tags") { ManageVoiceTagsView() }
             }
+            }
+            if visible.contains(.data) {
             Section("Data") {
                 SettingsPlaceholderRow(title: "Export")
                 SettingsPlaceholderRow(title: "Import")
             }
+            }
+            if visible.contains(.about) {
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
-                Text("Animals, voice recordings and tags sync to your Supabase account. Oral check-in transcripts are sent to Anthropic, using your own key.")
+                Text(SettingsSections.aboutFootnote(localOnly: AppMode.isLocalOnly))
                     .font(.footnote).foregroundStyle(.secondary)
+            }
             }
         }
         .navigationTitle("Settings")
