@@ -25,19 +25,16 @@ struct LocalRootView: View {
         ZStack {
             VStack(spacing: 0) {
                 if store.recovered {
-                    Text("The data store could not be opened. Running with a temporary store; export your data if this persists.")
-                        .font(.footnote)
-                        .padding(8)
-                        .frame(maxWidth: .infinity)
-                        .background(.yellow)
+                    RecoveredStoreBanner()
                 }
                 RootTabView()
             }
             .id(store.generation)
         }
         .task {
-            // The one piece of wiring a local-only build needs: sync stays in its offline state
-            // with no client, so nothing ever leaves the device.
+            // A no-op today: nothing in a local-only build assigns `store.sync`, so there is no
+            // coordinator to update. Kept so that if one is ever assigned it starts in the offline
+            // state with no client, and nothing leaves the device.
             store.configureSync(for: .offline, client: nil)
         }
     }

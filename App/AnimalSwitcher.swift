@@ -51,15 +51,25 @@ struct AnimalToolbar: ViewModifier {
                 ToolbarItem(placement: .topBarLeading) { AnimalSwitcher() }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        Button { showCheckIn = true } label: { Image(systemName: "mic.circle") }
-                            .accessibilityLabel("Oral check-in")
+                        if AnimalToolbar.showsCheckIn(localOnly: AppMode.isLocalOnly) {
+                            Button { showCheckIn = true } label: { Image(systemName: "mic.circle") }
+                                .accessibilityLabel("Oral check-in")
+                        }
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }
                             .accessibilityLabel("Settings")
                     }
                 }
             }
             .sheet(isPresented: $showSettings) { NavigationStack { SettingsView() } }
-            .sheet(isPresented: $showCheckIn) { OralCheckInEntry() }
+            .sheet(isPresented: $showCheckIn) {
+                if AnimalToolbar.showsCheckIn(localOnly: AppMode.isLocalOnly) { OralCheckInEntry() }
+            }
+    }
+
+    /// A local-only build has no oral check-in (it needs the Anthropic key Settings hides), so the
+    /// toolbar offers none.
+    static func showsCheckIn(localOnly: Bool) -> Bool {
+        !localOnly
     }
 }
 

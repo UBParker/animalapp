@@ -4,10 +4,21 @@ import Foundation
 /// doubled; lines end in `\n`, including the last.
 enum CSVWriter {
     static func field(_ value: String) -> String {
-        guard value.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" || $0 == "\r\n" }) else {
+        // Scalars, not Characters: a delimiter followed by a combining mark is one Character that
+        // equals none of these, and "\r\n" is one Character too. Every delimiter is one scalar.
+        guard value.unicodeScalars.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else {
             return value
         }
-        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        // Doubled scalar by scalar for the same reason: `replacingOccurrences` compares composed
+        // sequences, so it leaves a quote followed by a combining mark undoubled.
+        var quoted = String.UnicodeScalarView()
+        quoted.append("\"")
+        for scalar in value.unicodeScalars {
+            quoted.append(scalar)
+            if scalar == "\"" { quoted.append("\"") }
+        }
+        quoted.append("\"")
+        return String(quoted)
     }
 
     static func document(header: [String], rows: [[String]]) -> String {

@@ -63,10 +63,7 @@ struct RootTabView: View {
     @ViewBuilder
     private func content(for rootTab: RootTab) -> some View {
         switch rootTab {
-        case .buttons: Text("Buttons")
-        case .feed: Text("Feed")
-        case .poop: Text("Poop")
-        case .health: Text("Health")
+        case .buttons, .feed, .poop, .health: Text(rootTab.title)
         case .voice: VoiceTabView()
         }
     }

@@ -42,11 +42,7 @@ struct RootView: View {
             case .main(let showsOfflineBanner):
                 VStack(spacing: 0) {
                     if store.recovered {
-                        Text("The data store could not be opened. Running with a temporary store; export your data if this persists.")
-                            .font(.footnote)
-                            .padding(8)
-                            .frame(maxWidth: .infinity)
-                            .background(.yellow)
+                        RecoveredStoreBanner()
                     }
                     if showsOfflineBanner { OfflineBanner() }
                     RootTabView()
