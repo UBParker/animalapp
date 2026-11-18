@@ -53,6 +53,12 @@ enum SettingsSections {
             ? "Animals, voice recordings and tags stay on this phone and are not synced to any account. Your phone's own iCloud or computer backup includes them."
             : "Animals, voice recordings and tags sync to your Supabase account. Oral check-in transcripts are sent to Anthropic, using your own key."
     }
+
+    /// Whether the "Coming soon" rows for features no plan has built yet are shown. A local-only
+    /// build is what Ash uses day to day, so it leaves them out.
+    static func showsUnbuiltRows(localOnly: Bool) -> Bool {
+        !localOnly
+    }
 }
 
 struct SettingsView: View {
@@ -178,14 +184,18 @@ struct SettingsView: View {
             }
             if visible.contains(.tags) {
             Section("Tags") {
-                SettingsPlaceholderRow(title: "Poop tags")
+                if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
+                    SettingsPlaceholderRow(title: "Poop tags")
+                }
                 NavigationLink("Voice tags") { ManageVoiceTagsView() }
             }
             }
             if visible.contains(.data) {
             Section("Data") {
-                SettingsPlaceholderRow(title: "Export")
-                SettingsPlaceholderRow(title: "Import")
+                ExportDataRow()
+                if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
+                    SettingsPlaceholderRow(title: "Import")
+                }
             }
             }
             if visible.contains(.about) {

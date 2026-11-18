@@ -7,7 +7,7 @@ final class SettingsSectionsTests: XCTestCase {
     }
 
     func testFullBuildShowsEverySectionInOrder() {
-        XCTAssertEqual(SettingsSections.visible(localOnly: false), SettingsSection.allCases)
+        XCTAssertEqual(SettingsSections.visible(localOnly: false), [.account, .animals, .oralCheckIn, .tags, .data, .about])
     }
 
     func testLocalOnlyAboutFootnoteSaysRecordsStayOnThePhoneAndAreInTheDeviceBackup() {
@@ -18,5 +18,13 @@ final class SettingsSectionsTests: XCTestCase {
     func testFullBuildAboutFootnoteKeepsTheSyncText() {
         XCTAssertEqual(SettingsSections.aboutFootnote(localOnly: false),
                        "Animals, voice recordings and tags sync to your Supabase account. Oral check-in transcripts are sent to Anthropic, using your own key.")
+    }
+
+    func testLocalOnlyHidesUnbuiltRows() {
+        XCTAssertFalse(SettingsSections.showsUnbuiltRows(localOnly: true))
+    }
+
+    func testFullBuildShowsUnbuiltRows() {
+        XCTAssertTrue(SettingsSections.showsUnbuiltRows(localOnly: false))
     }
 }
