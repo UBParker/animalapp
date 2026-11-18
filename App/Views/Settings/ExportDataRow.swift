@@ -38,7 +38,13 @@ struct ExportDataRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Button(ExportCopy.button) { Task { await export() } }
+                Button(ExportCopy.button) {
+                    // Set before the Task starts, so a second tap in the same frame finds the row
+                    // already busy instead of starting a second export.
+                    guard !isExporting else { return }
+                    isExporting = true
+                    Task { await export() }
+                }
                     .disabled(isExporting)
                 if isExporting {
                     Spacer()
@@ -56,13 +62,16 @@ struct ExportDataRow: View {
             }
         }
         .sheet(item: $archive, onDismiss: removeArchive) { archive in
-            ShareSheet(items: [archive.url])
+            ShareSheet(items: [archive.url]) {
+                self.archive = nil
+                removeArchive()
+            }
         }
     }
 
     @MainActor
     private func export() async {
-        isExporting = true
+        // `isExporting` is already true: the button sets it before spawning this Task.
         defer { isExporting = false }
         missingCount = 0
         errorText = nil
@@ -83,7 +92,8 @@ struct ExportDataRow: View {
     }
 
     /// The zip lives in the temporary directory; once the share sheet has handed it on, nothing
-    /// needs it.
+    /// needs it. Runs from both the share sheet's completion and the sheet's `onDismiss`, so it is
+    /// idempotent: the second call finds `archiveToRemove` already nil.
     private func removeArchive() {
         if let url = archiveToRemove { try? FileManager.default.removeItem(at: url) }
         archiveToRemove = nil
