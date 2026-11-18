@@ -84,126 +84,126 @@ struct SettingsView: View {
         let visible = SettingsSections.visible(localOnly: AppMode.isLocalOnly)
         Form {
             if visible.contains(.account) {
-            Section("Account") {
-                switch auth.state {
-                case .signedIn(let userID, let email):
-                    LabeledContent("Signed in as", value: email ?? userID.uuidString)
-                        // Dialog 2 of the sign-out flow, on its own host view so it is never
-                        // stacked on the same view as dialog 1.
-                        .confirmationDialog(SettingsView.unsyncedDialogTitle(count: unsyncedCount),
-                                            isPresented: $showUnsyncedSignOutConfirmation,
-                                            titleVisibility: .visible) {
-                            Button(AccountButtons.signOutAnyway.title, role: .destructive) {
-                                Task { await performSignOut() }
-                            }
-                            Button(AccountButtons.staySignedIn.title, role: .cancel) {}
-                        } message: {
-                            Text(SettingsView.unsyncedDialogMessage(count: unsyncedCount))
-                        }
-                    Button(AccountButtons.signOut.title, role: .destructive) { showSignOutConfirmation = true }
-                        .disabled(isSigningOut || auth.isSigningOut)
-                        // Dialog 1 of the sign-out flow.
-                        .confirmationDialog("Sign out of this account?",
-                                            isPresented: $showSignOutConfirmation,
-                                            titleVisibility: .visible) {
-                            Button(AccountButtons.backUpAndSignOut.title) {
-                                Task { await backUpThenSignOut() }
-                            }
-                            Button(AccountButtons.staySignedIn.title, role: .cancel) {}
-                        } message: {
-                            Text("Signing out deletes the records on this phone. Anything already backed up is downloaded again next time you sign in.")
-                        }
-                case .offline:
-                    Text("Offline. Records stay on this phone and are not backed up.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    // The only state that offers to leave offline mode, and only behind the
-                    // confirmation below, because leaving discards the offline records.
-                    Button("Sign in") { showLeaveOfflineConfirmation = true }
-                        .confirmationDialog("Leaving offline mode deletes the records on this phone",
-                                            isPresented: $showLeaveOfflineConfirmation,
-                                            titleVisibility: .visible) {
-                            Button("Delete and sign in", role: .destructive) {
-                                Task {
-                                    signOutNotice = nil
-                                    await auth.leaveOfflineMode()
+                Section("Account") {
+                    switch auth.state {
+                    case .signedIn(let userID, let email):
+                        LabeledContent("Signed in as", value: email ?? userID.uuidString)
+                            // Dialog 2 of the sign-out flow, on its own host view so it is never
+                            // stacked on the same view as dialog 1.
+                            .confirmationDialog(SettingsView.unsyncedDialogTitle(count: unsyncedCount),
+                                                isPresented: $showUnsyncedSignOutConfirmation,
+                                                titleVisibility: .visible) {
+                                Button(AccountButtons.signOutAnyway.title, role: .destructive) {
+                                    Task { await performSignOut() }
                                 }
+                                Button(AccountButtons.staySignedIn.title, role: .cancel) {}
+                            } message: {
+                                Text(SettingsView.unsyncedDialogMessage(count: unsyncedCount))
                             }
-                            Button("Stay offline", role: .cancel) {}
-                        } message: {
-                            Text("Offline records belong to no account, so they are not carried into the one you sign in to.")
-                        }
-                case .signedOut, .unknown:
-                    // Unreachable in practice: RootGate shows the sign-in screen or the loading
-                    // screen for these, never the tabs, so Settings is not on screen. Rendered as
-                    // text rather than a button on purpose. v2 wired a "Sign in" button here to
-                    // `leaveOfflineMode()`, which wipes the store; firing that from a state that
-                    // never created offline data would destroy a signed-in person's records
-                    // between a sign-out and the next screen.
-                    Text("Not signed in.").font(.footnote).foregroundStyle(.secondary)
-                case .misconfigured:
-                    Text("This build has no Supabase key, so it cannot sign in or back anything up.")
-                        .font(.footnote).foregroundStyle(.orange)
-                }
-                // A refused sign-out says more than `auth.message` does, so it wins the row while
-                // it stands. There is deliberately no "force sign out" next to it: a refusal is
-                // persisted as a pending teardown and retried at the next launch, and forcing past
-                // it here would skip that retry.
-                if let signOutNotice {
-                    Text(signOutNotice).font(.footnote).foregroundStyle(.red)
-                        .accessibilityIdentifier("signOutRefusedNotice")
-                } else if let message = auth.message {
-                    Text(message).font(.footnote).foregroundStyle(.red)
-                }
-            }
-            }
-            if visible.contains(.animals) {
-            Section("Animals") {
-                NavigationLink("Manage Animals") { ManageAnimalsView() }
-            }
-            }
-            if visible.contains(.oralCheckIn) {
-            Section("Oral check-in") {
-                SecureField(hasStoredKey ? "API key saved (enter to replace)" : "Anthropic API key", text: $apiKeyDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                HStack {
-                    // Borderless: a Form row otherwise hands the whole row's taps to the first button.
-                    Button("Save key") { saveKey() }
-                        .buttonStyle(.borderless)
-                        .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Spacer()
-                    if hasStoredKey {
-                        Button("Remove key", role: .destructive) { removeKey() }
-                            .buttonStyle(.borderless)
+                        Button(AccountButtons.signOut.title, role: .destructive) { showSignOutConfirmation = true }
+                            .disabled(isSigningOut || auth.isSigningOut)
+                            // Dialog 1 of the sign-out flow.
+                            .confirmationDialog("Sign out of this account?",
+                                                isPresented: $showSignOutConfirmation,
+                                                titleVisibility: .visible) {
+                                Button(AccountButtons.backUpAndSignOut.title) {
+                                    Task { await backUpThenSignOut() }
+                                }
+                                Button(AccountButtons.staySignedIn.title, role: .cancel) {}
+                            } message: {
+                                Text("Signing out deletes the records on this phone. Anything already backed up is downloaded again next time you sign in.")
+                            }
+                    case .offline:
+                        Text("Offline. Records stay on this phone and are not backed up.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        // The only state that offers to leave offline mode, and only behind the
+                        // confirmation below, because leaving discards the offline records.
+                        Button("Sign in") { showLeaveOfflineConfirmation = true }
+                            .confirmationDialog("Leaving offline mode deletes the records on this phone",
+                                                isPresented: $showLeaveOfflineConfirmation,
+                                                titleVisibility: .visible) {
+                                Button("Delete and sign in", role: .destructive) {
+                                    Task {
+                                        signOutNotice = nil
+                                        await auth.leaveOfflineMode()
+                                    }
+                                }
+                                Button("Stay offline", role: .cancel) {}
+                            } message: {
+                                Text("Offline records belong to no account, so they are not carried into the one you sign in to.")
+                            }
+                    case .signedOut, .unknown:
+                        // Unreachable in practice: RootGate shows the sign-in screen or the loading
+                        // screen for these, never the tabs, so Settings is not on screen. Rendered as
+                        // text rather than a button on purpose. v2 wired a "Sign in" button here to
+                        // `leaveOfflineMode()`, which wipes the store; firing that from a state that
+                        // never created offline data would destroy a signed-in person's records
+                        // between a sign-out and the next screen.
+                        Text("Not signed in.").font(.footnote).foregroundStyle(.secondary)
+                    case .misconfigured:
+                        Text("This build has no Supabase key, so it cannot sign in or back anything up.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                    // A refused sign-out says more than `auth.message` does, so it wins the row while
+                    // it stands. There is deliberately no "force sign out" next to it: a refusal is
+                    // persisted as a pending teardown and retried at the next launch, and forcing past
+                    // it here would skip that retry.
+                    if let signOutNotice {
+                        Text(signOutNotice).font(.footnote).foregroundStyle(.red)
+                            .accessibilityIdentifier("signOutRefusedNotice")
+                    } else if let message = auth.message {
+                        Text(message).font(.footnote).foregroundStyle(.red)
                     }
                 }
-                if let keyMessage { Text(keyMessage).font(.footnote).foregroundStyle(.secondary) }
-                Stepper("Max follow-up questions: \(questionCap)", value: $questionCap, in: 1...20)
-                Toggle("Speak questions aloud", isOn: $speakQuestions)
             }
+            if visible.contains(.animals) {
+                Section("Animals") {
+                    NavigationLink("Manage Animals") { ManageAnimalsView() }
+                }
+            }
+            if visible.contains(.oralCheckIn) {
+                Section("Oral check-in") {
+                    SecureField(hasStoredKey ? "API key saved (enter to replace)" : "Anthropic API key", text: $apiKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    HStack {
+                        // Borderless: a Form row otherwise hands the whole row's taps to the first button.
+                        Button("Save key") { saveKey() }
+                            .buttonStyle(.borderless)
+                            .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Spacer()
+                        if hasStoredKey {
+                            Button("Remove key", role: .destructive) { removeKey() }
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                    if let keyMessage { Text(keyMessage).font(.footnote).foregroundStyle(.secondary) }
+                    Stepper("Max follow-up questions: \(questionCap)", value: $questionCap, in: 1...20)
+                    Toggle("Speak questions aloud", isOn: $speakQuestions)
+                }
             }
             if visible.contains(.tags) {
-            Section("Tags") {
-                if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
-                    SettingsPlaceholderRow(title: "Poop tags")
+                Section("Tags") {
+                    if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
+                        SettingsPlaceholderRow(title: "Poop tags")
+                    }
+                    NavigationLink("Voice tags") { ManageVoiceTagsView() }
                 }
-                NavigationLink("Voice tags") { ManageVoiceTagsView() }
-            }
             }
             if visible.contains(.data) {
-            Section("Data") {
-                ExportDataRow()
-                if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
-                    SettingsPlaceholderRow(title: "Import")
+                Section("Data") {
+                    ExportDataRow()
+                    if SettingsSections.showsUnbuiltRows(localOnly: AppMode.isLocalOnly) {
+                        SettingsPlaceholderRow(title: "Import")
+                    }
                 }
             }
-            }
             if visible.contains(.about) {
-            Section("About") {
-                LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
-                Text(SettingsSections.aboutFootnote(localOnly: AppMode.isLocalOnly))
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
+                Section("About") {
+                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
+                    Text(SettingsSections.aboutFootnote(localOnly: AppMode.isLocalOnly))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
         }
         .navigationTitle("Settings")
